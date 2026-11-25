@@ -1,0 +1,113 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* ── Monochrome design tokens ── */
+:root {
+  --bg: #ffffff;
+  --bg-elev: #fafafa;
+  --card: #f4f4f5;
+  --card-hover: #ececee;
+  --line: #e4e4e7;
+  --line-strong: #d4d4d8;
+  --fg: #09090b;
+  --fg-soft: #3f3f46;
+  --muted: #71717a;
+  --subtle: #a1a1aa;
+  --inverse: #ffffff;
+  --pos: #15803d;
+  --neg: #b91c1c;
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  --bg: #000000;
+  --bg-elev: #0a0a0a;
+  --card: #111111;
+  --card-hover: #1a1a1a;
+  --line: #1f1f1f;
+  --line-strong: #2e2e2e;
+  --fg: #fafafa;
+  --fg-soft: #d4d4d8;
+  --muted: #8a8a8a;
+  --subtle: #5c5c5c;
+  --inverse: #000000;
+  --pos: #4ade80;
+  --neg: #f87171;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-bg-elev: var(--bg-elev);
+  --color-card: var(--card);
+  --color-card-hover: var(--card-hover);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-fg: var(--fg);
+  --color-fg-soft: var(--fg-soft);
+  --color-muted: var(--muted);
+  --color-subtle: var(--subtle);
+  --color-inverse: var(--inverse);
+  --color-pos: var(--pos);
+  --color-neg: var(--neg);
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-feature-settings: "ss01", "cv11";
+  overscroll-behavior-y: none;
+}
+
+/* numbers are always tabular */
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  letter-spacing: -0.01em;
+}
+
+/* iOS safe areas */
+.pt-safe { padding-top: env(safe-area-inset-top); }
+.pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+.pb-nav { padding-bottom: calc(env(safe-area-inset-bottom) + 5.5rem); }
+
+/* inputs: 16px on mobile prevents iOS zoom on focus */
+input, select, textarea { font-size: 16px; }
+@media (min-width: 768px) {
+  input, select, textarea { font-size: 14px; }
+}
+
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+input[type="number"] { -moz-appearance: textfield; }
+input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(var(--invert, 0)); }
+[data-theme="dark"] { --invert: 1; }
+
+::selection { background: var(--fg); color: var(--inverse); }
+
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { scrollbar-width: none; }
+
+/* View transitions between routes */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 180ms;
+  animation-timing-function: var(--ease-spring);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
