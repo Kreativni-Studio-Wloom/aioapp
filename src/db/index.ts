@@ -1,6 +1,7 @@
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "./schema";
+import { databaseUrl } from "@/lib/env";
 
 export type DB = PostgresJsDatabase<typeof schema>;
 
@@ -12,7 +13,7 @@ const g = globalThis as unknown as { __aioDb?: DB };
  */
 function getDb(): DB {
   if (g.__aioDb) return g.__aioDb;
-  const url = process.env.DATABASE_URL;
+  const url = databaseUrl();
   if (!url) throw new Error("DATABASE_URL is not set");
   // prepare:false keeps it compatible with Supabase's transaction pooler (port 6543)
   const client = postgres(url, { prepare: false, max: process.env.NODE_ENV === "production" ? 5 : 10 });

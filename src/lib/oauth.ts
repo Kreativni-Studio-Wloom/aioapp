@@ -7,13 +7,15 @@ import { randomBytes, createHash } from "node:crypto";
 import { and, eq, gt } from "drizzle-orm";
 import { db, t } from "@/db";
 import { sha256 } from "@/lib/auth";
+import { appOrigin } from "@/lib/env";
 
 export const ACCESS_TTL_S = 60 * 60 * 24 * 30; // 30 days
 const REFRESH_TTL_MS = 1000 * 60 * 60 * 24 * 365;
 const CODE_TTL_MS = 1000 * 60 * 10;
 
 export function baseUrl(req: Request) {
-  if (process.env.APP_URL) return process.env.APP_URL.replace(/\/$/, "");
+  const configured = appOrigin();
+  if (configured) return configured;
   const u = new URL(req.url);
   const proto = req.headers.get("x-forwarded-proto") ?? u.protocol.replace(":", "");
   const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? u.host;
