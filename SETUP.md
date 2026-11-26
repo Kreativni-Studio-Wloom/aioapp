@@ -85,7 +85,7 @@ Denní cron (`vercel.json`, 17:00 UTC) aktualizuje kurzy ČNB, ceny aktiv, čist
 
 ## 6. Claude jako „vstup“ do aplikace (MCP konektor)
 
-Claude pak umí číst **všechna** tvoje data a zapisovat (tréninky, programy, jídlo, příjmy, eventy, aktiva…). Celkem 78 nástrojů.
+Claude pak umí číst **všechna** tvoje data a zapisovat (tréninky, programy, jídlo, příjmy, eventy, aktiva…). Celkem 81 nástrojů (včetně cílů).
 
 **Claude app (web, desktop i mobil):**
 1. claude.ai → Settings → **Connectors** → **Add custom connector**.
@@ -102,7 +102,19 @@ claude mcp add --transport http aio https://aioapp.eu/api/mcp --header "Authoriz
 
 ---
 
-## 7. iOS Zkratky (váha, rychlý zápis)
+## 7. Aktualizace databáze po změně schématu
+
+Když se změní `src/db/schema.ts` (naposledy: přesnější ceny aktiv – `numeric(24,10)`, aby šly evidovat i levné kryptoměny), spusť znovu:
+```bash
+npm run db:setup:prod
+```
+Změny jsou jen rozšiřující, data zůstanou. Knihovna cviků se nezduplikuje.
+
+## 8. Právní dokumenty
+
+Zdroj je v `pravni/*.md` (fakta v `pravni/FAKTA.md`, kontrola a úkoly v `pravni/KONTROLA.md` a `pravni/ZPRAVA.md`). Stránky: `/pravni/podminky`, `/pravni/soukromi`, `/pravni/cookies`, `/pravni/archiv`. Novou verzi přidáš podle návodu v `scripts/build-legal.mjs` (`npm run legal:build`); staré verze zůstávají v archivu.
+
+## 9. iOS Zkratky (váha, rychlý zápis)
 
 Zkratka → akce **Získat obsah URL**:
 - URL: `https://aioapp.eu/api/v1/tools/log_body_weight`

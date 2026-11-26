@@ -6,7 +6,7 @@ import { requireUser } from "@/lib/auth";
 import type { ActionResult } from "@/lib/utils";
 import { ASSET_CLASSES } from "@/lib/portfolio/constants";
 import * as svc from "@/lib/portfolio/service";
-import { importCsv, previewCsvImport, type CsvPreview } from "@/lib/portfolio/csv";
+import { importCsv, previewCsvImport, type CsvImportResult, type CsvPreview } from "@/lib/portfolio/csv";
 
 const TX_TYPES = ["buy", "sell", "dividend", "fee", "withdrawal", "valuation"] as const;
 const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Neplatné datum");
@@ -222,7 +222,7 @@ export async function previewCsvAction(text: string): Promise<ActionResult<CsvPr
   }
 }
 
-export async function importCsvAction(text: string): Promise<ActionResult<{ assetsCreated: number; transactionsCreated: number; errors: string[] }>> {
+export async function importCsvAction(text: string): Promise<ActionResult<CsvImportResult>> {
   try {
     const user = await requireUser();
     const res = await importCsv(user.id, csvText.parse(text));

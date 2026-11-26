@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { supabaseKey, supabaseUrl } from "@/lib/env";
 
-const PUBLIC = ["/login", "/register", "/forgot-password", "/auth", "/manifest.webmanifest", "/sw.js", "/offline", "/.well-known"];
+const PUBLIC = ["/login", "/register", "/forgot-password", "/auth", "/manifest.webmanifest", "/sw.js", "/offline", "/.well-known", "/pravni"];
 
 /**
  * Refreshes the Supabase session cookies on every page request and redirects signed-out visitors

@@ -38,7 +38,16 @@ export function ImportClient() {
       const res = await importCsvAction(text);
       if (!res.ok) return setErr(res.error);
       const d = res.data!;
-      setResult(`Importováno ${d.transactionsCreated} transakcí, nových aktiv ${d.assetsCreated}.${d.errors.length ? ` Chyby: ${d.errors.length}` : ""}`);
+      setResult(
+        [
+          `Importováno ${d.transactionsCreated} transakcí, nových aktiv ${d.assetsCreated}.`,
+          d.skippedDuplicates ? `Přeskočeno ${d.skippedDuplicates} duplicitních řádků.` : "",
+          d.converted ? `Přepočteno měn: ${d.converted} řádků.` : "",
+          d.errors.length ? `Chyby (${d.errors.length}): ${d.errors.slice(0, 5).join("; ")}${d.errors.length > 5 ? " …" : ""}` : "",
+        ]
+          .filter(Boolean)
+          .join(" "),
+      );
       setPreview(null);
       setText("");
       router.refresh();
@@ -49,7 +58,8 @@ export function ImportClient() {
       <Card className="space-y-3">
         <p className="text-sm text-muted">
           Sloupce: <span className="font-mono text-xs text-fg-soft">date,type,symbol,quantity,price,fee,currency</span>. Typy: buy, sell, dividend, fee, withdrawal, valuation (i česky).
-          U dividend dej částku do sloupce price. Oddělovač čárka, středník nebo tabulátor.
+          U dividend dej částku do sloupce price. Volitelně sloupec amount (celkem – cena za kus se dopočítá) a class (crypto). Oddělovač čárka, středník nebo
+          tabulátor. Řádky, které už existují, se přeskočí; jiná měna než u instrumentu se přepočte kurzem ČNB.
         </p>
         <Textarea
           value={text}
@@ -106,6 +116,14 @@ export function ImportClient() {
             ))}
           </Card>
 
+          {preview.notes.length > 0 && (
+            <Card className="space-y-1 text-sm text-muted">
+              {preview.notes.map((n, i) => (
+                <div key={i}>{n}</div>
+              ))}
+            </Card>
+          )}
+
           {preview.errors.length > 0 && (
             <Card className="space-y-1 text-sm text-neg">
               {preview.errors.map((e, i) => (
@@ -123,7 +141,7 @@ export function ImportClient() {
                 <span className="flex-1 truncate">{r.symbol}</span>
                 <span className="shrink-0 text-right text-fg-soft">
                   {r.type === "buy" || r.type === "sell"
-                    ? `${num(r.quantity, 8)} × ${num(r.price, 4)}`
+                    ? `${num(r.quantity, 8)} × ${num(r.price, r.price < 1 ? 8 : 4)}`
                     : money(r.amount, r.currency ?? preview.assets.find((a) => a.symbol === r.symbol)?.currency ?? "CZK", { decimals: 2 })}
                 </span>
               </div>

@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { ArrowDown, ArrowUp, ChevronDown, Play, Plus, Repeat, Trash2 } from "lucide-react";
 import { Badge, Button, Card, Field, Input, PageHeader, Select, Textarea } from "@/components/ui";
-import { ConfirmButton, Segmented } from "@/components/ui/client";
+import { ConfirmButton, Segmented, SubmitButton } from "@/components/ui/client";
 import { cn, toNum } from "@/lib/utils";
 import { WEEKDAYS_LONG_CS } from "@/lib/workout/constants";
 import type { AlternativeDTO, ExerciseDTO, ProgramDTO, ProgramExerciseDTO } from "@/lib/workout/service";
@@ -15,6 +15,7 @@ import {
   getAlternativesAction,
   removeProgramDayAction,
   removeProgramExerciseAction,
+  reorderProgramDaysAction,
   reorderProgramExercisesAction,
   replaceProgramExerciseAction,
   setActiveProgramAction,
@@ -23,6 +24,7 @@ import {
   updateProgramDayAction,
   updateProgramExerciseAction,
 } from "../../actions";
+import { ActionForm } from "../../_components/action-form";
 import { ExercisePicker } from "../../_components/exercise-picker";
 import { SwapSheet } from "../../_components/swap-sheet";
 
@@ -57,6 +59,15 @@ export function ProgramEditor({ program: initial, exercises, hasActiveWorkout }:
     [list[idx], list[j]] = [list[j], list[idx]];
     patchDay(day.id, (d) => ({ ...d, exercises: list }));
     call(reorderProgramExercisesAction(day.id, list.map((x) => x.id)));
+  };
+
+  const moveDay = (idx: number, dir: -1 | 1) => {
+    const j = idx + dir;
+    if (j < 0 || j >= program.days.length) return;
+    const days = [...program.days];
+    [days[idx], days[j]] = [days[j], days[idx]];
+    setProgram((p) => ({ ...p, days: days.map((d, i) => ({ ...d, order: i })) }));
+    call(reorderProgramDaysAction(program.id, days.map((d) => d.id)));
   };
 
   return (
@@ -108,10 +119,32 @@ export function ProgramEditor({ program: initial, exercises, hasActiveWorkout }:
 
       <div className="mt-6 space-y-4">
         <AnimatePresence initial={false}>
-          {program.days.map((day) => (
+          {program.days.map((day, dayIdx) => (
             <motion.div key={day.id} layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.98 }}>
               <Card className="p-0 md:p-0">
                 <div className="flex flex-wrap items-center gap-2 border-b border-line p-3 md:p-4">
+                  {program.days.length > 1 && (
+                    <div className="flex shrink-0 flex-col">
+                      <button
+                        type="button"
+                        disabled={dayIdx === 0}
+                        onClick={() => moveDay(dayIdx, -1)}
+                        className="flex h-6 w-8 items-center justify-center rounded-md text-muted hover:text-fg disabled:opacity-30"
+                        aria-label="Posunout den nahoru"
+                      >
+                        <ArrowUp className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={dayIdx === program.days.length - 1}
+                        onClick={() => moveDay(dayIdx, 1)}
+                        className="flex h-6 w-8 items-center justify-center rounded-md text-muted hover:text-fg disabled:opacity-30"
+                        aria-label="Posunout den dolů"
+                      >
+                        <ArrowDown className="h-4 w-4" />
+                      </button>
+                    </div>
+                  )}
                   <Input
                     defaultValue={day.name}
                     maxLength={60}
@@ -178,12 +211,12 @@ export function ProgramEditor({ program: initial, exercises, hasActiveWorkout }:
                     <Plus className="h-4 w-4" /> Cvik
                   </Button>
                   {!hasActiveWorkout && day.exercises.length > 0 && (
-                    <form action={startWorkoutAction}>
+                    <ActionForm action={startWorkoutAction}>
                       <input type="hidden" name="programDayId" value={day.id} />
-                      <Button type="submit" size="sm">
+                      <SubmitButton size="sm">
                         <Play className="h-3.5 w-3.5" fill="currentColor" /> Začít
-                      </Button>
-                    </form>
+                      </SubmitButton>
+                    </ActionForm>
                   )}
                   <div className="ml-auto">
                     <ConfirmButton

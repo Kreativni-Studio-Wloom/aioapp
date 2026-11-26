@@ -39,7 +39,8 @@ export default async function AssetPage({ params }: PageProps<"/portfolio/[id]">
 
       <Card className="p-5 md:p-6">
         <div className="text-xs text-muted">Hodnota</div>
-        <div className="num mt-1 text-4xl font-semibold tracking-tight">{money(a.valueCzk)}</div>
+        <div className="num mt-1 text-4xl font-semibold tracking-tight">{a.fxMissing ? money(a.value, cur) : money(a.valueCzk)}</div>
+        {a.fxMissing && <p className="mt-1 text-xs text-muted">Kurz {cur}/CZK není k dispozici – hodnota v CZK je neznámá.</p>}
         <div className="mt-1 flex flex-wrap gap-x-3 text-sm text-muted">
           {cur !== "CZK" && <span className="num">{money(a.value, cur)}</span>}
           {a.invested > 0 && <PlText value={a.unrealizedCzk} pctValue={a.plPct} />}
@@ -86,7 +87,12 @@ export default async function AssetPage({ params }: PageProps<"/portfolio/[id]">
           </Card>
         )}
         <Card>
-          <Stat label="Realizováno" value={<PlText value={a.realized + a.withdrawn} currency={cur} />} sub={a.withdrawn ? `z toho výběry ${money(a.withdrawn, cur)}` : undefined} />
+          {/* market assets realize profit via sells – legacy "withdrawal" rows are not added to P/L */}
+          <Stat
+            label="Realizováno"
+            value={<PlText value={a.realized + (a.manual ? a.withdrawn : 0)} currency={cur} />}
+            sub={a.withdrawn ? `${a.manual ? "z toho výběry" : "výběry (nezapočteny)"} ${money(a.withdrawn, cur)}` : undefined}
+          />
         </Card>
         <Card>
           <Stat label="Dividendy / úroky" value={money(a.dividends, cur)} />

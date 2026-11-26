@@ -6,6 +6,8 @@ import { requireUser } from "@/lib/auth";
 import { AiDisabledError } from "@/lib/ai";
 import type { ActionResult } from "@/lib/utils";
 import * as svc from "@/lib/nutrition/service";
+import { foodShape, profileShape } from "@/lib/nutrition/schemas";
+import { isoDate } from "@/lib/format";
 
 const zDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const zMeal = z.enum(["breakfast", "lunch", "dinner", "snack"]);
@@ -33,15 +35,7 @@ async function run<T>(fn: (userId: string) => Promise<T>): Promise<ActionResult<
 /* ── Profile ── */
 
 const ProfileSchema = z.object({
-  sex: z.enum(["male", "female"]).nullable(),
-  birthDate: zDate.nullable(),
-  heightCm: zNum.min(100).max(250).nullable(),
-  activityLevel: z.enum(["sedentary", "light", "moderate", "active", "very_active"]),
-  goal: z.enum(["lose", "maintain", "gain"]),
-  rateKgPerWeek: zNum.min(0).max(1.5),
-  proteinPerKg: zNum.min(0.5).max(4),
-  fatPct: zNum.min(0.1).max(0.6),
-  kcalOverride: zNum.int().min(800).max(8000).nullable(),
+  ...profileShape(() => z.coerce.number()),
   weightKg: zNum.min(25).max(400).nullable().optional(),
 });
 
@@ -50,8 +44,10 @@ export async function saveProfileAction(input: z.input<typeof ProfileSchema>) {
     const { weightKg, ...p } = ProfileSchema.parse(input);
     await svc.updateProfile(userId, p);
     if (weightKg != null) {
+      // Record a weigh-in when the weight changed, or when the last one isn't from today
+      // (re-confirming the same weight is still a data point for the adaptive TDEE).
       const latest = await svc.getLatestWeight(userId);
-      if (!latest || latest.weightKg !== weightKg) await svc.setWeight(userId, weightKg);
+      if (!latest || latest.weightKg !== weightKg || latest.date !== isoDate()) await svc.setWeight(userId, weightKg);
     }
     revalidate();
   });
@@ -81,12 +77,12 @@ const HitSchema = z.object({
   ean: z.string().max(20).nullable(),
   name: z.string().min(1).max(200),
   brand: z.string().max(200).nullable(),
-  kcal: zPos,
-  protein: zPos,
-  carbs: zPos,
-  fat: zPos,
-  fiber: zPos.nullable(),
-  servingG: zPos.nullable(),
+  kcal: zPos.max(1000),
+  protein: zPos.max(100),
+  carbs: zPos.max(100),
+  fat: zPos.max(100),
+  fiber: zPos.max(100).nullable(),
+  servingG: zPos.max(5000).nullable(),
   isFavorite: z.boolean(),
   origin: z.enum(["mine", "cache", "off"]),
   lastUsedAt: z.string().nullable().optional(),
@@ -180,20 +176,7 @@ export async function estimateImageAction(dataUrl: string, hint?: string | null)
 
 /* ── Foods ── */
 
-const FoodSchema = z.object({
-  name: z.string().trim().min(1).max(200),
-  brand: z.string().trim().max(200).nullable().optional(),
-  ean: z.string().trim().max(20).nullable().optional(),
-  kcal: zPos.max(1000),
-  protein: zPos.max(100),
-  carbs: zPos.max(100),
-  fat: zPos.max(100),
-  fiber: zPos.max(100).nullable().optional(),
-  sugar: zPos.max(100).nullable().optional(),
-  salt: zPos.max(100).nullable().optional(),
-  servingG: zPos.max(5000).nullable().optional(),
-  isFavorite: z.boolean().optional(),
-});
+const FoodSchema = z.object(foodShape(() => z.coerce.number()));
 
 export async function saveFoodAction(id: string | null, input: z.input<typeof FoodSchema>) {
   return run(async (userId) => {

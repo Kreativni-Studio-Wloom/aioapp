@@ -529,7 +529,10 @@ function TextTab({ onResult }: { onResult: (items: AiFoodItem[]) => void }) {
   );
 }
 
-type Row = { key: number; name: string; grams: string; kcal: string; protein: string; carbs: string; fat: string; fiber: number; confidence: number };
+/** Reference values (at `grams`) that all gram rescaling is computed from, so repeated edits never drift. */
+type Base = { grams: number | null; kcal: number; protein: number; carbs: number; fat: number; fiber: number };
+type Row = { key: number; name: string; grams: string; kcal: string; protein: string; carbs: string; fat: string; fiber: number; confidence: number; base: Base };
+type MacroKey = "kcal" | "protein" | "carbs" | "fat";
 const fmt = (n: number, d = 1) => String(Math.round(n * 10 ** d) / 10 ** d).replace(".", ",");
 
 function ReviewStep({
@@ -558,27 +561,39 @@ function ReviewStep({
       fat: fmt(i.fat),
       fiber: i.fiber,
       confidence: i.confidence,
+      base: { grams: i.grams && i.grams > 0 ? i.grams : null, kcal: i.kcal, protein: i.protein, carbs: i.carbs, fat: i.fat, fiber: i.fiber },
     })),
   );
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   const update = (key: number, patch: Partial<Row>) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
-  /** Changing grams rescales all values proportionally. */
+  /**
+   * Changing grams rescales all values proportionally – always from the row's base values
+   * (original AI estimate, or the user's manual edits re-based to the base grams), never from
+   * the previously rescaled numbers. Clearing the field keeps the values; retyping rescales again.
+   */
   const setGrams = (r: Row, value: string) => {
-    const oldG = toNum(r.grams);
     const newG = toNum(value);
-    if (oldG && newG && oldG > 0) {
-      const f = newG / oldG;
-      update(r.key, {
-        grams: value,
-        kcal: String(Math.round((toNum(r.kcal) ?? 0) * f)),
-        protein: fmt((toNum(r.protein) ?? 0) * f),
-        carbs: fmt((toNum(r.carbs) ?? 0) * f),
-        fat: fmt((toNum(r.fat) ?? 0) * f),
-        fiber: r.fiber * f,
-      });
-    } else update(r.key, { grams: value });
+    const { base } = r;
+    // No valid new weight, or the AI gave no weight to scale from (no reference) → just store the text.
+    if (!newG || newG <= 0 || !base.grams) return update(r.key, { grams: value });
+    const f = newG / base.grams;
+    update(r.key, {
+      grams: value,
+      kcal: String(Math.round(base.kcal * f)),
+      protein: fmt(base.protein * f),
+      carbs: fmt(base.carbs * f),
+      fat: fmt(base.fat * f),
+      fiber: base.fiber * f,
+    });
+  };
+  /** Manual edit of a value: keep it and store it in the base, converted to the base grams. */
+  const setMacro = (r: Row, k: MacroKey, value: string) => {
+    const v = toNum(value) ?? 0;
+    const curG = toNum(r.grams);
+    const ratio = r.base.grams && curG && curG > 0 ? r.base.grams / curG : 1;
+    update(r.key, { [k]: value, base: { ...r.base, [k]: v * ratio } });
   };
 
   const total = rows.reduce((s, r) => s + (toNum(r.kcal) ?? 0), 0);
@@ -606,7 +621,7 @@ function ReviewStep({
 
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-sm text-muted">Zkontroluj a uprav odhad. Změna gramáže přepočítá hodnoty.</p>
+      <p className="text-sm text-muted">Odhad vytvořila umělá inteligence (Claude) a může být nepřesný. Zkontroluj ho a uprav; změna gramáže přepočítá hodnoty.</p>
       <AnimatePresence initial={false}>
         {rows.map((r) => (
           <motion.div
@@ -625,10 +640,10 @@ function ReviewStep({
             </div>
             <div className="mt-2 grid grid-cols-5 gap-1.5">
               <SmallNum label="g" value={r.grams} onChange={(v) => setGrams(r, v)} />
-              <SmallNum label="kcal" value={r.kcal} onChange={(v) => update(r.key, { kcal: v })} />
-              <SmallNum label="B" value={r.protein} onChange={(v) => update(r.key, { protein: v })} />
-              <SmallNum label="S" value={r.carbs} onChange={(v) => update(r.key, { carbs: v })} />
-              <SmallNum label="T" value={r.fat} onChange={(v) => update(r.key, { fat: v })} />
+              <SmallNum label="kcal" value={r.kcal} onChange={(v) => setMacro(r, "kcal", v)} />
+              <SmallNum label="B" value={r.protein} onChange={(v) => setMacro(r, "protein", v)} />
+              <SmallNum label="S" value={r.carbs} onChange={(v) => setMacro(r, "carbs", v)} />
+              <SmallNum label="T" value={r.fat} onChange={(v) => setMacro(r, "fat", v)} />
             </div>
             {r.confidence < 0.5 && <div className="mt-1.5 text-xs text-muted">Nejistý odhad – zkontroluj množství.</div>}
           </motion.div>

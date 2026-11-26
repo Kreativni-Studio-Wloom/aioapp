@@ -58,19 +58,19 @@ export async function getAlternativesAction(exerciseId: string) {
 
 /* ── Programs ── */
 
-export async function createProgramAction(form: FormData) {
-  const user = await requireUser();
+// Form actions (used with useActionState): service errors come back as { ok: false }; redirect stays outside run().
+export async function createProgramAction(_: ActionResult | undefined, form: FormData): Promise<ActionResult> {
   const name = str(form.get("name")) ?? "Můj program";
-  const p = await svc.createProgram(user.id, { name, description: str(form.get("description")), days: [{ name: "Den 1", exercises: [] }] });
-  revalidatePath("/workout/programs");
-  redirect(`/workout/programs/${p.id}`);
+  const r = await run((uid) => svc.createProgram(uid, { name, description: str(form.get("description")), days: [{ name: "Den 1", exercises: [] }] }), ["/workout/programs"]);
+  if (!r.ok) return r;
+  redirect(`/workout/programs/${r.data!.id}`);
 }
 
-export async function cloneTemplateAction(form: FormData) {
-  const user = await requireUser();
-  const p = await svc.cloneProgramTemplate(user.id, String(form.get("key") ?? ""));
+export async function cloneTemplateAction(_: ActionResult | undefined, form: FormData): Promise<ActionResult> {
+  const r = await run((uid) => svc.cloneProgramTemplate(uid, String(form.get("key") ?? "")));
+  if (!r.ok) return r;
   revalidatePath("/workout", "layout");
-  redirect(`/workout/programs/${p.id}`);
+  redirect(`/workout/programs/${r.data!.id}`);
 }
 
 export async function updateProgramAction(programId: string, patch: { name?: string; description?: string | null }) {
@@ -141,12 +141,20 @@ export async function reorderProgramExercisesAction(dayId: string, ids: string[]
 
 /* ── Workouts ── */
 
-export async function startWorkoutAction(form: FormData) {
-  const user = await requireUser();
+export async function startWorkoutAction(_: ActionResult | undefined, form: FormData): Promise<ActionResult> {
   const dayId = str(form.get("programDayId"));
-  const w = await svc.startWorkout(user.id, { programDayId: dayId && uuid.safeParse(dayId).success ? dayId : null, name: str(form.get("name")) });
-  revalidatePath("/workout");
-  redirect(`/workout/session/${w.id}`);
+  const date = str(form.get("date"));
+  const r = await run(
+    (uid) =>
+      svc.startWorkout(uid, {
+        programDayId: dayId && uuid.safeParse(dayId).success ? dayId : null,
+        name: str(form.get("name")),
+        date: date ?? null,
+      }),
+    ["/workout"],
+  );
+  if (!r.ok) return r;
+  redirect(`/workout/session/${r.data!.id}`);
 }
 
 const setSchema = z.object({

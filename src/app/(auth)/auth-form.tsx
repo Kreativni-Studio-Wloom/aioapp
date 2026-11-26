@@ -65,6 +65,34 @@ export function AuthForm({ mode, next, notice }: { mode: Mode; next?: string; no
               <Input name="password2" type="password" autoComplete="new-password" required minLength={8} />
             </Field>
           )}
+          {mode === "register" && (
+            <div className="space-y-3 text-sm text-fg-soft">
+              <label className="flex items-start gap-3">
+                <input type="checkbox" name="terms" required className="mt-0.5 h-5 w-5 shrink-0 accent-[var(--fg)]" />
+                <span>
+                  Je mi alespoň 15 let a souhlasím s{" "}
+                  <Link href="/pravni/podminky" target="_blank" className="underline underline-offset-4">
+                    podmínkami užívání
+                  </Link>
+                  .
+                </span>
+              </label>
+              <label className="flex items-start gap-3">
+                <input type="checkbox" name="health" required className="mt-0.5 h-5 w-5 shrink-0 accent-[var(--fg)]" />
+                <span>
+                  Výslovně souhlasím se zpracováním údajů o mém zdraví (váha, jídlo, trénink), které do AIO zapíšu, za účelem jejich vyhodnocení
+                  v aplikaci. Souhlas mohu kdykoli odvolat smazáním účtu.
+                </span>
+              </label>
+              <p className="text-xs text-muted">
+                Jak s údaji zacházíme, popisují{" "}
+                <Link href="/pravni/soukromi" target="_blank" className="underline underline-offset-4">
+                  zásady ochrany osobních údajů
+                </Link>
+                .
+              </p>
+            </div>
+          )}
         </>
       )}
 

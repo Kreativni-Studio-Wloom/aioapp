@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Dumbbell, Apple, Wallet, LineChart, Sparkles, Plus, AlertTriangle, ArrowUpRight } from "lucide-react";
+import { Dumbbell, Apple, Wallet, LineChart, Sparkles, Plus, AlertTriangle, ArrowUpRight, Target } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { dateLabel, money, num } from "@/lib/format";
 import { CardLink, Delta, ProgressBar } from "@/components/ui";
@@ -8,6 +8,7 @@ import { getWorkoutSummary } from "@/lib/workout/summary";
 import { getNutritionSummary } from "@/lib/nutrition/summary";
 import { getIncomeSummary } from "@/lib/income/summary";
 import { getPortfolioSummary } from "@/lib/portfolio/summary";
+import { listGoals } from "@/lib/goals/service";
 import { Stagger, StaggerItem } from "./stagger";
 
 async function safe<T>(p: Promise<T>): Promise<T | null> {
@@ -40,12 +41,14 @@ function CardHead({ icon: Icon, label }: { icon: typeof Dumbbell; label: string 
 
 export default async function Home() {
   const user = await requireUser();
-  const [w, n, i, p] = await Promise.all([
+  const [w, n, i, p, g] = await Promise.all([
     safe(getWorkoutSummary(user.id)),
     safe(getNutritionSummary(user.id)),
     safe(getIncomeSummary(user.id)),
     safe(getPortfolioSummary(user.id)),
+    safe(listGoals(user.id)),
   ]);
+  const openGoals = (g ?? []).filter((x) => !x.achievedAt).slice(0, 4);
 
   const quick = [
     { href: w?.activeWorkoutId ? `/workout/session/${w.activeWorkoutId}` : "/workout", label: w?.activeWorkoutId ? "Pokračovat v tréninku" : "Trénink", icon: Dumbbell },
@@ -166,7 +169,7 @@ export default async function Home() {
 
         {/* Income */}
         <StaggerItem>
-          <CardLink href="/income" className="h-full">
+          <CardLink href="/income" className="h-full" data-private>
             <CardHead icon={Wallet} label="Příjmy" />
             {i ? (
               <>
@@ -196,7 +199,7 @@ export default async function Home() {
 
         {/* Portfolio */}
         <StaggerItem>
-          <CardLink href="/portfolio" className="h-full">
+          <CardLink href="/portfolio" className="h-full" data-private>
             <CardHead icon={LineChart} label="Portfolio" />
             {p ? (
               <>
@@ -233,6 +236,30 @@ export default async function Home() {
           </CardLink>
         </StaggerItem>
       </Stagger>
+
+      <Link href="/goals" className="mt-3 block rounded-2xl border border-line p-4 transition-colors hover:bg-card md:p-5">
+        <div className="mb-3 flex items-center justify-between">
+          <div className="flex items-center gap-2 text-sm font-medium text-muted">
+            <Target className="h-4 w-4" strokeWidth={1.75} /> Cíle
+          </div>
+          <ArrowUpRight className="h-4 w-4 text-subtle" />
+        </div>
+        {openGoals.length === 0 ? (
+          <div className="text-sm text-muted">Nastav si cíl – bench 100 kg, váha 78 kg, 500 000 Kč z Matchi… Progres se počítá sám.</div>
+        ) : (
+          <div className="grid gap-3 md:grid-cols-2">
+            {openGoals.map((goal) => (
+              <div key={goal.id} className={goal.unit === "CZK" ? "private" : undefined}>
+                <div className="mb-1 flex justify-between gap-3 text-sm">
+                  <span className="truncate">{goal.title}</span>
+                  <span className="num shrink-0 text-muted">{Math.round(goal.progress * 100)} %</span>
+                </div>
+                <ProgressBar value={goal.progress} max={1} />
+              </div>
+            ))}
+          </div>
+        )}
+      </Link>
 
       <Link
         href="/ai"

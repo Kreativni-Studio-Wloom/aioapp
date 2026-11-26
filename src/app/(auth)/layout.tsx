@@ -1,3 +1,5 @@
+import { LegalLinks } from "@/components/legal-links";
+
 export default function AuthLayout({ children }: LayoutProps<"/">) {
   return (
     <div className="pt-safe pb-safe flex min-h-dvh flex-col items-center justify-center px-6">
@@ -8,6 +10,7 @@ export default function AuthLayout({ children }: LayoutProps<"/">) {
         </div>
         {children}
       </div>
+      <LegalLinks className="mt-12" />
     </div>
   );
 }

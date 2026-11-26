@@ -1,14 +1,15 @@
 import Link from "next/link";
-import { ArrowRight, BookOpen, CalendarDays, ListChecks, Play, Scale, Sparkles, TrendingDown } from "lucide-react";
-import { Badge, Card, CardLink, Empty, LinkButton, PageHeader, SectionTitle, Stat } from "@/components/ui";
+import { ArrowRight, BookOpen, CalendarDays, History, ListChecks, Play, Scale, Sparkles, TrendingDown } from "lucide-react";
+import { Badge, Card, CardLink, Empty, Field, Input, LinkButton, PageHeader, SectionTitle, Select, Stat } from "@/components/ui";
 import { SubmitButton } from "@/components/ui/client";
 import { requireUser } from "@/lib/auth";
-import { dateLabel, duration, num } from "@/lib/format";
+import { addDays, dateLabel, duration, isoDate, num } from "@/lib/format";
 import { fmtVolume } from "@/lib/workout/calc";
 import { WEEKDAYS_LONG_CS } from "@/lib/workout/constants";
 import { getActiveWorkout, getLatestWeight, getRecentWorkouts, getStagnation, getTodayPlan, getWeekStats } from "@/lib/workout/service";
 import { startWorkoutAction } from "./actions";
 import { WorkoutList } from "./_components/workout-list";
+import { ActionForm } from "./_components/action-form";
 
 export default async function WorkoutHome() {
   const user = await requireUser();
@@ -79,17 +80,17 @@ export default async function WorkoutHome() {
           )}
           {!active && (
             <div className="mt-5 flex flex-col gap-2 sm:flex-row">
-              <form action={startWorkoutAction} className="flex-1">
+              <ActionForm action={startWorkoutAction} wrapClassName="flex-1">
                 <input type="hidden" name="programDayId" value={plan.day.id} />
                 <SubmitButton size="lg" className="w-full" pendingText="Začínám…">
                   <Play className="h-5 w-5" fill="currentColor" /> Začít trénink
                 </SubmitButton>
-              </form>
-              <form action={startWorkoutAction}>
+              </ActionForm>
+              <ActionForm action={startWorkoutAction}>
                 <SubmitButton size="lg" variant="secondary" className="w-full">
                   Prázdný trénink
                 </SubmitButton>
-              </form>
+              </ActionForm>
             </div>
           )}
           <div className="mt-3 text-center">
@@ -105,17 +106,45 @@ export default async function WorkoutHome() {
             <div className="flex flex-col gap-2 sm:flex-row">
               <LinkButton href="/workout/programs">Vybrat program</LinkButton>
               {!active && (
-                <form action={startWorkoutAction}>
+                <ActionForm action={startWorkoutAction}>
                   <SubmitButton variant="secondary" className="w-full">
                     Prázdný trénink
                   </SubmitButton>
-                </form>
+                </ActionForm>
               )}
             </div>
           }
         >
           Vytvoř si vlastní program nebo začni ze šablony (PPL, Upper/Lower, Full body). Nebo rovnou zapisuj prázdný trénink.
         </Empty>
+      )}
+
+      {!active && (
+        <details className="mt-3 rounded-2xl border border-line bg-card">
+          <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-4 text-sm text-muted hover:text-fg">
+            <History className="h-4 w-4" /> Zapsat starší trénink
+          </summary>
+          <ActionForm action={startWorkoutAction} wrapClassName="px-4 pb-4" className="grid gap-3 sm:grid-cols-[auto_1fr_auto] sm:items-end">
+            <Field label="Datum">
+              <Input type="date" name="date" required max={isoDate()} defaultValue={addDays(isoDate(), -1)} />
+            </Field>
+            {plan ? (
+              <Field label="Trénink">
+                <Select name="programDayId" defaultValue="">
+                  <option value="">Prázdný trénink</option>
+                  <option value={plan.day.id}>{plan.day.name}</option>
+                </Select>
+              </Field>
+            ) : (
+              <Field label="Název">
+                <Input name="name" placeholder="Trénink" maxLength={80} />
+              </Field>
+            )}
+            <SubmitButton variant="secondary" pendingText="Zakládám…">
+              Zapsat
+            </SubmitButton>
+          </ActionForm>
+        </details>
       )}
 
       <SectionTitle>Tento týden</SectionTitle>

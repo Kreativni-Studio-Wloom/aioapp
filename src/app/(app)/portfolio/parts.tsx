@@ -95,7 +95,7 @@ export function HoldingCard({ h }: { h: Holding }) {
       </div>
       {!h.manual && <Sparkline values={h.sparkline} className="hidden sm:block" />}
       <div className="shrink-0 text-right">
-        <div className="num font-medium">{money(h.valueCzk)}</div>
+        <div className="num font-medium">{h.fxMissing ? money(h.value, h.currency) : money(h.valueCzk)}</div>
         <div className="text-xs">
           {h.invested > 0 ? (
             <span className={cn("num", h.plPct > 0 ? "text-pos" : h.plPct < 0 ? "text-neg" : "text-muted")}>{pct(h.plPct, 1, true)}</span>

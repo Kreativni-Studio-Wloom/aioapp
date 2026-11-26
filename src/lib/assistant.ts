@@ -2,7 +2,8 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { and, asc, eq } from "drizzle-orm";
 import { db, t } from "@/db";
 import { isoDate } from "@/lib/format";
-import { TOOLS, TOOL_MAP, jsonSchema, runTool } from "@/lib/ai-tools";
+import { TOOLS, TOOL_MAP, jsonSchema, runTool, type ToolDef } from "@/lib/ai-tools";
+import { resolveEntityNames } from "@/lib/workout/service";
 
 type BetaMessageParam = Anthropic.Beta.BetaMessageParam;
 type BetaContentBlockParam = Anthropic.Beta.BetaContentBlockParam;
@@ -74,6 +75,40 @@ export async function saveMessage(conversationId: string, role: "user" | "assist
 
 export type ProposedAction = { id: string; tool: string; summary: string; status: "pending" | "applied" | "rejected" | "undone" };
 
+/**
+ * Approval-card text for a write tool. For workout tools the display labels the model supplied
+ * (exerciseName, fromName, toName, programName, dayName, label) are replaced by the real names of the
+ * ids the tool will act on, so the card shows what actually changes.
+ */
+async function summarize(userId: string, def: ToolDef, input: Record<string, unknown>) {
+  if (!def.summarize) return def.name;
+  if (def.module !== "workout") return def.summarize(input);
+  const s = (k: string) => (typeof input[k] === "string" ? (input[k] as string) : undefined);
+  const has = (k: string) => k in input || Object.hasOwn(def.schema.shape, k);
+  try {
+    const names = await resolveEntityNames(userId, {
+      programExerciseId: s("programExerciseId"),
+      exerciseIds: [s("exerciseId"), s("newExerciseId")].filter((x): x is string => !!x),
+      programId: has("programName") ? s("programId") : undefined,
+      dayId: has("dayName") ? s("dayId") : undefined,
+      workoutId: has("label") ? s("workoutId") : undefined,
+    });
+    const fixed: Record<string, unknown> = { ...input };
+    const current = names.programExercise ?? (s("exerciseId") ? names.exercises[s("exerciseId")!] : undefined);
+    if (current && has("exerciseName")) fixed.exerciseName = current;
+    if (names.programExercise && has("fromName")) fixed.fromName = names.programExercise;
+    const to = s("newExerciseId") ? names.exercises[s("newExerciseId")!] : undefined;
+    if (to && has("toName")) fixed.toName = to;
+    if (names.program && has("programName")) fixed.programName = names.program;
+    if (names.day && has("dayName")) fixed.dayName = names.day;
+    if (names.workout && has("label")) fixed.label = names.workout;
+    return def.summarize(fixed);
+  } catch (e) {
+    console.warn("[assistant] summary lookup failed", e);
+    return def.summarize(input);
+  }
+}
+
 /** Execute a tool call from the model. Read tools run; write tools become pending proposals. */
 export async function handleToolUse(userId: string, conversationId: string, block: { id: string; name: string; input: unknown }) {
   const def = TOOL_MAP.get(block.name);
@@ -92,7 +127,7 @@ export async function handleToolUse(userId: string, conversationId: string, bloc
   }
 
   if (def.write) {
-    const summary = def.summarize ? def.summarize(parsed.data) : def.name;
+    const summary = await summarize(userId, def, parsed.data as Record<string, unknown>);
     const [row] = await db
       .insert(t.aiActions)
       .values({ userId, conversationId, tool: def.name, input: parsed.data, summary })
@@ -116,16 +151,22 @@ export async function handleToolUse(userId: string, conversationId: string, bloc
 
 /** Apply or reject a pending proposal and leave a note in the conversation so the model knows. */
 export async function resolveAction(userId: string, actionId: string, approve: boolean) {
-  const [a] = await db.select().from(t.aiActions).where(and(eq(t.aiActions.id, actionId), eq(t.aiActions.userId, userId)));
-  if (!a || a.status !== "pending") return { ok: false as const, error: "Návrh už není aktivní." };
+  // Claim the proposal atomically (pending → applied/rejected) so a double click or two tabs can't apply it twice.
+  const [a] = await db
+    .update(t.aiActions)
+    .set({ status: approve ? "applied" : "rejected" })
+    .where(and(eq(t.aiActions.id, actionId), eq(t.aiActions.userId, userId), eq(t.aiActions.status, "pending")))
+    .returning();
+  if (!a) return { ok: false as const, error: "Návrh už není aktivní." };
   if (approve) {
     try {
       await runTool(userId, a.tool, a.input);
     } catch (e) {
+      // not applied – release the claim so the user can retry (or reject) it
+      await db.update(t.aiActions).set({ status: "pending" }).where(and(eq(t.aiActions.id, a.id), eq(t.aiActions.status, "applied")));
       return { ok: false as const, error: e instanceof Error ? e.message : "Chyba při provádění" };
     }
   }
-  await db.update(t.aiActions).set({ status: approve ? "applied" : "rejected" }).where(eq(t.aiActions.id, a.id));
   if (a.conversationId) {
     await saveMessage(a.conversationId, "user", [
       { type: "text", text: `[Note from the app, ${isoDate()}] The user ${approve ? "APPROVED and applied" : "REJECTED"} proposal ${a.id}: ${a.summary}` },

@@ -432,6 +432,9 @@ export function Chat(props: {
             </Button>
           )}
         </form>
+        <p className="mt-1.5 text-center text-[11px] text-subtle">
+          Odpovídá umělá inteligence (Claude od Anthropic) a může se mýlit. Změny dat provede až po tvém schválení.
+        </p>
       </div>
 
       <Sheet open={historyOpen} onClose={() => setHistoryOpen(false)} title="Konverzace">

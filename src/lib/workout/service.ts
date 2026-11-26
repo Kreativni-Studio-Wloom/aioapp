@@ -815,10 +815,32 @@ export async function getExerciseLast(userId: string, exerciseId: string, exclud
   return (await getLastPerformances(userId, [exerciseId], excludeWorkoutId))[exerciseId] ?? null;
 }
 
-/** Start a workout from a program day (prefilled, uncompleted sets) or empty. Returns an existing unfinished workout if any. */
-export async function startWorkout(userId: string, input: { programDayId?: string | null; name?: string | null } = {}): Promise<{ id: string; resumed: boolean }> {
+/** A workout this long after its start is treated as logged after the fact (backdated or forgotten). */
+const BACKDATED_AFTER_MS = 12 * 3600_000;
+const BACKDATED_DURATION_MS = 60 * 60_000;
+
+/**
+ * Start a workout from a program day (prefilled, uncompleted sets) or empty. Returns an existing unfinished workout if any.
+ * `date` (YYYY-MM-DD, Prague, not in the future) logs a past workout: it starts at 17:00 that day and
+ * finishWorkout stamps finishedAt on the same day.
+ */
+export async function startWorkout(
+  userId: string,
+  input: { programDayId?: string | null; name?: string | null; date?: string | null } = {},
+): Promise<{ id: string; resumed: boolean }> {
+  let startedAt: Date | undefined;
+  if (input.date) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date)) throw new WorkoutError("Neplatné datum");
+    const today = isoDate();
+    if (input.date > today) throw new WorkoutError("Datum nemůže být v budoucnosti");
+    if (input.date < addDays(today, -366)) throw new WorkoutError("Datum je příliš staré");
+    if (input.date !== today) startedAt = new Date(pragueDayStart(input.date).getTime() + 17 * 3600_000);
+  }
   const active = await getActiveWorkout(userId);
-  if (active) return { id: active.id, resumed: true };
+  if (active) {
+    if (startedAt) throw new WorkoutError("Nejdřív dokonči nebo zahoď rozpracovaný trénink.");
+    return { id: active.id, resumed: true };
+  }
 
   let dayName: string | null = null;
   let pes: ProgramExerciseDTO[] = [];
@@ -833,7 +855,7 @@ export async function startWorkout(userId: string, input: { programDayId?: strin
   const id = await db.transaction(async (tx) => {
     const [w] = await tx
       .insert(t.workouts)
-      .values({ userId, programDayId: input.programDayId ?? null, name: input.name?.trim() || dayName || "Trénink" })
+      .values({ userId, programDayId: input.programDayId ?? null, name: input.name?.trim() || dayName || "Trénink", ...(startedAt ? { startedAt } : {}) })
       .returning({ id: t.workouts.id });
     const values: (typeof t.workoutSets.$inferInsert)[] = [];
     pes.forEach((pe, order) => {
@@ -944,11 +966,16 @@ export type WorkoutFinishSummary = {
 export async function finishWorkout(userId: string, workoutId: string, opts: { notes?: string | null } = {}): Promise<WorkoutFinishSummary> {
   const w = await assertWorkout(userId, workoutId);
   await db.delete(t.workoutSets).where(and(eq(t.workoutSets.workoutId, workoutId), eq(t.workoutSets.completed, false)));
-  if (!w.finishedAt)
+  if (!w.finishedAt) {
+    const now = new Date();
+    const started = new Date(w.startedAt);
+    // a backdated (or long-forgotten) workout keeps its own day instead of ending "now"
+    const finishedAt = now.getTime() - started.getTime() > BACKDATED_AFTER_MS ? new Date(started.getTime() + BACKDATED_DURATION_MS) : now;
     await db
       .update(t.workouts)
-      .set({ finishedAt: new Date(), ...(opts.notes !== undefined ? { notes: opts.notes } : {}) })
+      .set({ finishedAt, ...(opts.notes !== undefined ? { notes: opts.notes } : {}) })
       .where(eq(t.workouts.id, workoutId));
+  }
   const d = (await getWorkout(userId, workoutId))!;
   return {
     id: d.id,
@@ -969,6 +996,8 @@ export async function deleteWorkout(userId: string, workoutId: string) {
 
 export type SessionTarget = {
   programExerciseId: string;
+  /** exercise planned in the program slot */
+  exerciseId: string;
   sets: number;
   repMin: number;
   repMax: number;
@@ -983,8 +1012,8 @@ export type SessionData = {
   workout: { id: string; name: string; notes: string | null; startedAt: string; finishedAt: string | null; programDayId: string | null };
   sets: WorkoutSetDTO[];
   exercises: Record<string, SessionExerciseInfo>;
-  /** program targets keyed by exerciseOrder */
-  targets: Record<number, SessionTarget>;
+  /** program targets keyed by exerciseId (never by position: ad-hoc exercises and edited programs shift positions) */
+  targets: Record<string, SessionTarget>;
   last: Record<string, LastPerformance>;
   defaultRestSeconds: number;
 };
@@ -1003,7 +1032,7 @@ export async function getSessionData(userId: string, workoutId: string): Promise
     .where(eq(t.workoutSets.workoutId, w.id))
     .orderBy(asc(t.workoutSets.exerciseOrder), asc(t.workoutSets.setNumber), asc(t.workoutSets.createdAt));
   const sets = setRows.map(toSet);
-  const targets: Record<number, SessionTarget> = {};
+  const targets: Record<string, SessionTarget> = {};
   const exIds = new Set(sets.map((s) => s.exerciseId));
   if (w.programDayId) {
     const pes = await db
@@ -1011,9 +1040,11 @@ export async function getSessionData(userId: string, workoutId: string): Promise
       .from(t.programExercises)
       .where(eq(t.programExercises.dayId, w.programDayId))
       .orderBy(asc(t.programExercises.order));
-    pes.forEach((pe, i) => {
-      targets[i] = {
+    for (const pe of pes) {
+      if (targets[pe.exerciseId]) continue; // same exercise twice in a day: first slot wins
+      targets[pe.exerciseId] = {
         programExerciseId: pe.id,
+        exerciseId: pe.exerciseId,
         sets: pe.sets,
         repMin: pe.repMin,
         repMax: pe.repMax,
@@ -1023,7 +1054,7 @@ export async function getSessionData(userId: string, workoutId: string): Promise
         progression: pe.progression,
         notes: pe.notes,
       };
-    });
+    }
   }
   const exRows = exIds.size ? await db.select().from(t.exercises).where(inArray(t.exercises.id, [...exIds])) : [];
   const exercises: Record<string, SessionExerciseInfo> = {};
@@ -1118,8 +1149,8 @@ export type StagnationItem = {
 };
 
 /**
- * For each exercise trained in the last 60 days: if the best working set hasn't improved in weight or reps
- * for ≥ profile.stagnationSessions consecutive sessions, flag it with a concrete suggestion.
+ * For each exercise trained in the last 60 days: if the last ≥ profile.stagnationSessions sessions were all at the
+ * same top working weight without a rep increase, flag it with a concrete suggestion. A weight change resets it.
  */
 export async function getStagnation(userId: string): Promise<StagnationItem[]> {
   const { stagnationSessions: threshold } = await getProfileSettings(userId);
@@ -1168,21 +1199,23 @@ export async function getStagnation(userId: string): Promise<StagnationItem[]> {
   const out: StagnationItem[] = [];
   for (const [exerciseId, ex] of byEx) {
     const sessions = [...ex.sessions.values()];
-    if (sessions.length < threshold + 1) continue;
-    let bestW = -1;
+    if (sessions.length < threshold) continue;
+    // Stagnation = the trailing run of sessions at the same top working weight in which reps never
+    // went up. Any weight change (increase, or a deload) ends the run, so following the deload advice
+    // starts counting from zero instead of escalating.
+    const last = sessions[sessions.length - 1];
+    let runStart = sessions.length - 1;
+    while (runStart > 0 && sessions[runStart - 1].weightKg === last.weightKg) runStart--;
     let bestR = -1;
     let stall = 0;
-    for (const s of sessions) {
-      const improved = s.weightKg > bestW || (s.weightKg >= bestW && s.reps > bestR);
-      if (improved) {
-        if (s.weightKg > bestW) bestR = s.reps;
-        else bestR = Math.max(bestR, s.reps);
-        bestW = Math.max(bestW, s.weightKg);
-        stall = 0;
+    for (const s of sessions.slice(runStart)) {
+      if (s.reps > bestR) {
+        bestR = s.reps;
+        stall = 1;
       } else stall++;
     }
+    const bestW = last.weightKg;
     if (stall < threshold) continue;
-    const last = sessions[sessions.length - 1];
     let suggestion: StagnationItem["suggestion"];
     if (stall >= threshold + 2) suggestion = { kind: "swap", text: "Vyměň variantu cviku na 4–6 týdnů a pak se vrať." };
     else if (stall === threshold || bestW <= 0)
@@ -1290,4 +1323,65 @@ export async function getLatestWeight(userId: string): Promise<{ date: string; w
     .orderBy(desc(t.bodyMetrics.date))
     .limit(1);
   return r ? { date: r.date, weightKg: r.weightKg! } : null;
+}
+
+/* ─────────────────────────────── Labels (AI approval cards) ─────────────────────────────── */
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Real names for ids referenced by a write tool, so an approval card shows what will actually change
+ * (not the label the model supplied). Unknown / foreign ids are simply missing from the result.
+ */
+export async function resolveEntityNames(
+  userId: string,
+  ids: { programExerciseId?: string; exerciseIds?: string[]; programId?: string; dayId?: string; workoutId?: string },
+) {
+  const ok = (v?: string): v is string => !!v && UUID_RE.test(v);
+  const out: { programExercise?: string; exercises: Record<string, string>; program?: string; day?: string; workout?: string } = { exercises: {} };
+  if (ok(ids.programExerciseId)) {
+    const [r] = await db
+      .select({ name: t.exercises.name })
+      .from(t.programExercises)
+      .innerJoin(t.programDays, eq(t.programDays.id, t.programExercises.dayId))
+      .innerJoin(t.programs, eq(t.programs.id, t.programDays.programId))
+      .innerJoin(t.exercises, eq(t.exercises.id, t.programExercises.exerciseId))
+      .where(and(eq(t.programExercises.id, ids.programExerciseId), eq(t.programs.userId, userId)))
+      .limit(1);
+    if (r) out.programExercise = r.name;
+  }
+  const exIds = (ids.exerciseIds ?? []).filter(ok);
+  if (exIds.length) {
+    const rows = await db
+      .select({ id: t.exercises.id, name: t.exercises.name })
+      .from(t.exercises)
+      .where(and(inArray(t.exercises.id, exIds), visibleTo(userId)));
+    for (const r of rows) out.exercises[r.id] = r.name;
+  }
+  if (ok(ids.programId)) {
+    const [r] = await db
+      .select({ name: t.programs.name })
+      .from(t.programs)
+      .where(and(eq(t.programs.id, ids.programId), eq(t.programs.userId, userId)))
+      .limit(1);
+    if (r) out.program = r.name;
+  }
+  if (ok(ids.dayId)) {
+    const [r] = await db
+      .select({ name: t.programDays.name })
+      .from(t.programDays)
+      .innerJoin(t.programs, eq(t.programs.id, t.programDays.programId))
+      .where(and(eq(t.programDays.id, ids.dayId), eq(t.programs.userId, userId)))
+      .limit(1);
+    if (r) out.day = r.name;
+  }
+  if (ok(ids.workoutId)) {
+    const [r] = await db
+      .select({ name: t.workouts.name, startedAt: t.workouts.startedAt })
+      .from(t.workouts)
+      .where(and(eq(t.workouts.id, ids.workoutId), eq(t.workouts.userId, userId)))
+      .limit(1);
+    if (r) out.workout = `„${r.name}“ (${isoDate(r.startedAt)})`;
+  }
+  return out;
 }

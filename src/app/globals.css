@@ -76,6 +76,43 @@ body {
   letter-spacing: -0.01em;
 }
 
+/* privacy mode: blur amounts in money areas (toggle in the top bar / ⌘K) */
+[data-privacy="on"] [data-private] .num,
+[data-privacy="on"] [data-private] .recharts-wrapper,
+[data-privacy="on"] .private {
+  filter: blur(7px);
+  transition: filter 0.2s var(--ease-spring);
+}
+[data-privacy="on"] [data-private] .num:hover,
+[data-privacy="on"] .private:hover {
+  filter: none;
+}
+
+/* legal documents (generated HTML from /pravni) */
+.legal-prose { line-height: 1.65; color: var(--fg-soft); max-width: 70ch; }
+.legal-prose h1 { color: var(--fg); font-size: 1.75rem; font-weight: 600; letter-spacing: -0.02em; line-height: 1.2; margin: 0 0 0.75rem; }
+.legal-prose h2 { color: var(--fg); font-size: 1.125rem; font-weight: 600; margin: 2.25rem 0 0.75rem; scroll-margin-top: 1rem; }
+.legal-prose h3 { color: var(--fg); font-size: 1rem; font-weight: 600; margin: 1.5rem 0 0.5rem; scroll-margin-top: 1rem; }
+.legal-prose p, .legal-prose ul, .legal-prose ol, .legal-prose table, .legal-prose blockquote { margin: 0 0 0.9rem; font-size: 0.9375rem; }
+.legal-prose ul { list-style: disc; padding-left: 1.25rem; }
+.legal-prose ol { list-style: decimal; padding-left: 1.25rem; }
+.legal-prose li { margin: 0.25rem 0; }
+.legal-prose a { color: var(--fg); text-decoration: underline; text-underline-offset: 3px; }
+.legal-prose strong { color: var(--fg); font-weight: 600; }
+.legal-prose code { font-size: 0.85em; background: var(--card); border-radius: 6px; padding: 0.1em 0.35em; }
+.legal-prose blockquote { border-left: 2px solid var(--line-strong); padding: 0.25rem 0 0.25rem 1rem; }
+.legal-prose table { display: block; overflow-x: auto; border-collapse: collapse; font-size: 0.875rem; }
+.legal-prose th, .legal-prose td { border-bottom: 1px solid var(--line); padding: 0.5rem 0.75rem 0.5rem 0; text-align: left; vertical-align: top; }
+.legal-prose th { color: var(--fg); font-weight: 600; }
+.legal-prose .legal-toc { order: 2; margin: 0 0 2rem; padding: 1rem 1.25rem; border-radius: 1rem; background: var(--card); font-size: 0.875rem; }
+.legal-prose .legal-toc a { text-decoration: none; color: var(--fg-soft); }
+.legal-prose .legal-toc a:hover { color: var(--fg); }
+.legal-prose .legal-toc ol { margin: 0; padding: 0; list-style: none; }
+.legal-prose { display: flex; flex-direction: column; }
+.legal-prose > h1 { order: 0; }
+.legal-prose > h1 + p { order: 1; }
+.legal-prose > :not(.legal-toc):not(h1):not(h1 + p) { order: 3; }
+
 /* iOS safe areas */
 .pt-safe { padding-top: env(safe-area-inset-top); }
 .pb-safe { padding-bottom: env(safe-area-inset-bottom); }

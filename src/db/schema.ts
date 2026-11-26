@@ -374,7 +374,7 @@ export const assets = pgTable("assets", {
   currency: text("currency").notNull().default("CZK"),
   priceSource: text("price_source").$type<"manual" | "coingecko" | "yahoo">().notNull().default("manual"),
   externalId: text("external_id"), // coingecko id (e.g. "bitcoin") or yahoo ticker (e.g. "VWCE.DE")
-  lastPrice: money("last_price"), // in asset currency, per unit
+  lastPrice: numeric("last_price", { precision: 24, scale: 10, mode: "number" }), // in asset currency, per unit
   lastPriceAt: timestamp("last_price_at", { withTimezone: true }),
   targetPct: doublePrecision("target_pct"), // target allocation (0-100)
   archived: boolean("archived").notNull().default(false),
@@ -394,7 +394,7 @@ export const assetTransactions = pgTable(
     type: text("type").$type<"buy" | "sell" | "dividend" | "fee" | "withdrawal" | "valuation">().notNull(),
     date: date("date").notNull(),
     quantity: doublePrecision("quantity").notNull().default(0),
-    price: money("price").notNull().default(0), // per unit, asset currency
+    price: numeric("price", { precision: 24, scale: 10, mode: "number" }).notNull().default(0), // per unit, asset currency
     fee: money("fee").notNull().default(0),
     amount: money("amount").notNull().default(0), // total in asset currency
     note: text("note"),
@@ -410,7 +410,7 @@ export const priceHistory = pgTable(
       .notNull()
       .references(() => assets.id, { onDelete: "cascade" }),
     date: date("date").notNull(),
-    price: money("price").notNull(),
+    price: numeric("price", { precision: 24, scale: 10, mode: "number" }).notNull(),
   },
   (t) => [primaryKey({ columns: [t.assetId, t.date] })],
 );

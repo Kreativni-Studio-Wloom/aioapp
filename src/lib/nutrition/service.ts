@@ -7,6 +7,7 @@ import {
   goalDelta,
   linearSlope,
   scalePer100,
+  trainingDayBonus,
   KCAL_PER_KG,
   type ActivityLevel,
   type Goal,
@@ -73,6 +74,8 @@ export type Day = {
   targets: Targets;
   /** a workout was started on this date */
   trainingDay: boolean;
+  /** training-day bump already included in `targets` (null on rest days) */
+  trainingBonus: { kcal: number; carbs: number } | null;
 };
 
 export type Food = {
@@ -237,17 +240,30 @@ export async function setWeight(userId: string, weightKg: number, date: string =
 
 const ADAPTIVE_WINDOW = 28;
 const ADAPTIVE_MIN_DAYS = 14;
+/** A day counts as "fully logged" with entries in at least this many distinct meals… */
+const ADAPTIVE_MIN_MEALS = 2;
+/** …or with at least this share of the daily kcal target. */
+const ADAPTIVE_MIN_TARGET_SHARE = 0.5;
 
 /**
  * Adaptive TDEE from the last 28 days (excluding today):
- * avg intake − weight trend (kg/day) × 7700. Needs ≥ 14 logged days and ≥ 14 weigh-ins.
+ * avg intake − weight trend (kg/day) × 7700.
+ *
+ * Heuristic against partially logged days (which would drag the average intake down and
+ * underestimate TDEE): only days that look fully logged are used – entries in ≥ 2 distinct
+ * meals OR total ≥ 50 % of the kcal target. Needs ≥ 14 such days and ≥ 14 weigh-ins.
+ * `foodDays` reports the number of these complete days.
  */
-export async function getAdaptiveTdee(userId: string, today: string = isoDate()): Promise<AdaptiveInfo> {
+export async function getAdaptiveTdee(userId: string, today: string = isoDate(), targetKcal?: number): Promise<AdaptiveInfo> {
   const to = addDays(today, -1);
   const from = addDays(today, -ADAPTIVE_WINDOW);
-  const [intake, weights] = await Promise.all([
+  const [intake, weights, target] = await Promise.all([
     db
-      .select({ date: t.foodLogs.date, kcal: sql<number>`sum(${t.foodLogs.kcal})`.mapWith(Number) })
+      .select({
+        date: t.foodLogs.date,
+        kcal: sql<number>`sum(${t.foodLogs.kcal})`.mapWith(Number),
+        meals: sql<number>`count(distinct ${t.foodLogs.mealType})`.mapWith(Number),
+      })
       .from(t.foodLogs)
       .where(and(eq(t.foodLogs.userId, userId), gte(t.foodLogs.date, from), lte(t.foodLogs.date, to)))
       .groupBy(t.foodLogs.date),
@@ -255,8 +271,12 @@ export async function getAdaptiveTdee(userId: string, today: string = isoDate())
       .select({ date: t.bodyMetrics.date, w: t.bodyMetrics.weightKg })
       .from(t.bodyMetrics)
       .where(and(eq(t.bodyMetrics.userId, userId), isNotNull(t.bodyMetrics.weightKg), gte(t.bodyMetrics.date, from), lte(t.bodyMetrics.date, to))),
+    targetKcal != null
+      ? Promise.resolve(targetKcal)
+      : Promise.all([getProfile(userId), getLatestWeight(userId)]).then(([p, w]) => computeTargets(p, w?.weightKg ?? null).kcal),
   ]);
-  const days = intake.filter((d) => d.kcal > 0);
+  const minKcal = target * ADAPTIVE_MIN_TARGET_SHARE;
+  const days = intake.filter((d) => d.kcal > 0 && (d.meals >= ADAPTIVE_MIN_MEALS || d.kcal >= minKcal));
   const base: AdaptiveInfo = {
     tdee: null,
     foodDays: days.length,
@@ -283,8 +303,9 @@ export async function getTargetsDetail(userId: string): Promise<{
   /** kcal target if the adaptive TDEE were adopted (with the same goal delta) */
   adaptiveKcal: number | null;
 }> {
-  const [profile, latestWeight, adaptive] = await Promise.all([getProfile(userId), getLatestWeight(userId), getAdaptiveTdee(userId)]);
+  const [profile, latestWeight] = await Promise.all([getProfile(userId), getLatestWeight(userId)]);
   const detail = computeTargets(profile, latestWeight?.weightKg ?? null);
+  const adaptive = await getAdaptiveTdee(userId, isoDate(), detail.kcal);
   const adaptiveKcal = adaptive.tdee != null ? applyGoal(adaptive.tdee, goalDelta(profile.goal, profile.rateKgPerWeek), profile.sex).kcal : null;
   return { profile, detail, latestWeight, adaptive, adaptiveKcal };
 }
@@ -343,7 +364,9 @@ export async function getDay(userId: string, date: string): Promise<Day> {
     isTrainingDay(userId, date),
   ]);
   const entries = rows.map(toEntry);
-  return { date, entries, totals: sumTotals(entries), waterMl, targets, trainingDay };
+  const trainingBonus = trainingDay ? trainingDayBonus(targets.carbs) : null;
+  const dayTargets = trainingBonus ? { ...targets, kcal: targets.kcal + trainingBonus.kcal, carbs: targets.carbs + trainingBonus.carbs } : targets;
+  return { date, entries, totals: sumTotals(entries), waterMl, targets: dayTargets, trainingDay, trainingBonus };
 }
 
 export async function countEntries(userId: string, date: string): Promise<number> {
@@ -654,26 +677,35 @@ export async function cacheOffProduct(p: OffProduct): Promise<Food> {
   return toFood(row);
 }
 
-/** Resolve a search hit to a stored food (caches OFF hits into the shared cache by EAN). */
+/**
+ * Resolve a search hit to a stored food.
+ *
+ * The hit comes from the client, so its values are untrusted: the shared cache (userId null)
+ * is only ever written with data re-fetched server-side from Open Food Facts by EAN. If that
+ * fails (offline / unknown product), the client-supplied values are stored as a user-owned food.
+ */
 export async function ensureFoodFromHit(userId: string, hit: FoodHit): Promise<Food> {
   if (hit.id) {
     const f = await getFood(userId, hit.id);
     if (f) return f;
   }
-  if (!hit.ean) throw new Error("Potravina nenalezena");
-  const local = await findByEan(userId, hit.ean);
-  if (local) return local;
-  return cacheOffProduct({
-    ean: hit.ean,
+  const ean = hit.ean?.replace(/\D/g, "") || null;
+  if (ean) {
+    const local = await findByEan(userId, ean);
+    if (local) return local;
+    const p = await offProduct(ean);
+    if (p) return cacheOffProduct(p);
+  }
+  if (!hit.name.trim()) throw new Error("Potravina nenalezena");
+  return createFood(userId, {
     name: hit.name,
     brand: hit.brand,
+    ean,
     kcal: hit.kcal,
     protein: hit.protein,
     carbs: hit.carbs,
     fat: hit.fat,
     fiber: hit.fiber,
-    sugar: null,
-    salt: null,
     servingG: hit.servingG,
   });
 }

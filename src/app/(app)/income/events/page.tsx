@@ -4,7 +4,7 @@ import { Card, Empty, SectionTitle, Stat } from "@/components/ui";
 import { requireUser } from "@/lib/auth";
 import { isoDate, money, pct } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { getEventAnalytics, listEvents, listSources } from "@/lib/income/service";
+import { getEventAnalytics, isValidYear, listEvents, listSources } from "@/lib/income/service";
 import { EventRow, IncomeHeader, SignedMoney } from "../_components/bits";
 import { EventButton } from "../_components/forms";
 
@@ -29,7 +29,7 @@ export default async function EventsPage({ searchParams }: Props) {
   const sp = await searchParams;
   const sources = (await listSources(user.id, { includeArchived: true })).filter((s) => s.type === "business");
   const sourceId = sources.some((s) => s.id === sp.source) ? sp.source : undefined;
-  const year = sp.y && /^\d{4}$/.test(sp.y) ? Number(sp.y) : undefined;
+  const year = sp.y && /^\d{4}$/.test(sp.y) && isValidYear(Number(sp.y)) ? Number(sp.y) : undefined;
 
   const range = year ? { from: `${year}-01-01`, to: `${year}-12-31` } : {};
   const [events, an, allEvents] = await Promise.all([

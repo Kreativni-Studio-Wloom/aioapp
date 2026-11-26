@@ -37,6 +37,10 @@ export function DayView({
   const [addOpen, setAddOpen] = useState(false);
   const [addMeal, setAddMeal] = useState<MealType>("snack");
   const [editing, setEditing] = useState<FoodLogEntry | null>(null);
+  const [waterError, setWaterError] = useState<string | null>(null);
+  /** date the previous day was already copied into (in this session) – prevents doubling by repeated taps */
+  const [copiedInto, setCopiedInto] = useState<{ date: string; n: number } | null>(null);
+  const [copyError, setCopyError] = useState<string | null>(null);
   const touch = useRef<{ x: number; y: number } | null>(null);
 
   const { totals, targets } = day;
@@ -65,8 +69,19 @@ export function DayView({
 
   const water = (ml: number) =>
     startTransition(async () => {
-      await addWaterAction(day.date, ml);
+      setWaterError(null);
+      const res = await addWaterAction(day.date, ml);
+      if (!res.ok) setWaterError(res.error);
     });
+
+  const copyPrev = () =>
+    startTransition(async () => {
+      setCopyError(null);
+      const res = await copyDayAction(addDays(day.date, -1), day.date);
+      if (res.ok) setCopiedInto({ date: day.date, n: res.data ?? 0 });
+      else setCopyError(res.error);
+    });
+  const copiedHere = copiedInto?.date === day.date;
 
   const onTouchStart = (e: React.TouchEvent) => {
     const tt = e.touches[0];
@@ -161,6 +176,14 @@ export function DayView({
         </div>
       </Card>
 
+      {day.trainingBonus && day.trainingBonus.kcal > 0 && (
+        <p className="mt-3 px-1 text-sm text-muted">
+          <Dumbbell className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />
+          Tréninkový den: cíl navýšen o <span className="num font-medium text-fg">+{num(day.trainingBonus.kcal)} kcal</span> (
+          <span className="num">+{num(day.trainingBonus.carbs)} g</span> sacharidů).
+        </p>
+      )}
+
       {day.trainingDay && totals.protein < targets.protein && (
         <p className="mt-3 px-1 text-sm text-muted">
           <Dumbbell className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />
@@ -187,6 +210,7 @@ export function DayView({
           <Plus className="h-4 w-4" /> 250 ml
         </Button>
       </Card>
+      {waterError && <p className="mt-2 px-1 text-sm text-neg">Vodu se nepodařilo uložit: {waterError}</p>}
 
       {/* Meals */}
       <div className="mt-6 grid gap-3 md:grid-cols-2">
@@ -233,18 +257,22 @@ export function DayView({
       </div>
 
       {prevDayCount > 0 && (
-        <div className="mt-4 flex justify-center">
-          <ConfirmButton
-            variant="ghost"
-            confirmText={day.entries.length > 0 ? "Přidat k dnešním záznamům?" : "Opravdu kopírovat?"}
-            onConfirm={() =>
-              startTransition(async () => {
-                await copyDayAction(addDays(day.date, -1), day.date);
-              })
-            }
-          >
-            <Copy className="h-4 w-4" /> Kopírovat {day.date === today ? "včerejšek" : "předchozí den"} ({prevDayCount})
-          </ConfirmButton>
+        <div className="mt-4 flex flex-col items-center gap-1">
+          {copiedHere ? (
+            <p className="py-2 text-sm text-muted">
+              Zkopírováno {copiedInto.n} {copiedInto.n === 1 ? "záznam" : copiedInto.n < 5 ? "záznamy" : "záznamů"} z předchozího dne.
+            </p>
+          ) : (
+            <ConfirmButton
+              variant="ghost"
+              disabled={pending}
+              confirmText={day.entries.length > 0 ? "Den už má záznamy – přidat i tak?" : "Opravdu kopírovat?"}
+              onConfirm={copyPrev}
+            >
+              <Copy className="h-4 w-4" /> Kopírovat {day.date === today ? "včerejšek" : "předchozí den"} ({prevDayCount})
+            </ConfirmButton>
+          )}
+          {copyError && <p className="text-sm text-neg">Kopírování selhalo: {copyError}</p>}
         </div>
       )}
 

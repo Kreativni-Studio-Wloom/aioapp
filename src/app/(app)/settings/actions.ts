@@ -1,9 +1,10 @@
 "use server";
 
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { randomBytes } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db, t } from "@/db";
 import { requireUser, sha256 } from "@/lib/auth";
 import { supabaseServer } from "@/lib/supabase";
@@ -88,4 +89,21 @@ export async function sendTestPush(): Promise<ActionResult> {
   const { sendPush } = await import("@/lib/push");
   const n = await sendPush(user.id, { title: "AIO", body: "Notifikace fungují ✓", url: "/settings" });
   return n > 0 ? { ok: true } : { ok: false, error: "Žádné zařízení není přihlášené k notifikacím." };
+}
+
+/**
+ * Delete the account and all its data (GDPR art. 17). App tables cascade from `users`; the Supabase Auth
+ * identity is removed directly in the `auth` schema (our DB role owns it on Supabase; skipped locally).
+ */
+export async function deleteAccount(_: ActionResult | undefined, form: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const typed = String(form.get("confirm") ?? "").trim().toLowerCase();
+  if (typed !== user.email.toLowerCase()) return { ok: false, error: "Pro potvrzení napiš přesně svůj e-mail." };
+  await db.transaction(async (tx) => {
+    await tx.delete(t.users).where(eq(t.users.id, user.id));
+    const [row] = await tx.execute<{ present: boolean }>(sql`select to_regclass('auth.users') is not null as present`);
+    if (row?.present) await tx.execute(sql`delete from auth.users where lower(email) = ${user.email.toLowerCase()}`);
+  });
+  await (await supabaseServer()).auth.signOut().catch(() => {});
+  redirect("/login?m=deleted");
 }

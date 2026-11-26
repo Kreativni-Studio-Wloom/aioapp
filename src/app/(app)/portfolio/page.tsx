@@ -1,17 +1,24 @@
 import Link from "next/link";
+import { after } from "next/server";
 import { Card, Empty, PageHeader, SectionTitle, Stat } from "@/components/ui";
 import { AnimatedNumber } from "@/components/ui/client";
 import { requireUser } from "@/lib/auth";
 import { money, pct } from "@/lib/format";
-import { getNetWorthHistory, getPortfolioOverview, refreshIfStale, snapshotNetWorth } from "@/lib/portfolio/service";
+import { getNetWorthHistory, getPortfolioOverview, snapshotNetWorth, startRefreshIfStale } from "@/lib/portfolio/service";
 import { NetWorthChart } from "./charts";
 import { AddAssetButton, Collapsible, LiabilitiesSection, RefreshButton } from "./overview-client";
 import { AllocationBars, HoldingCard, PlText, RebalanceList } from "./parts";
 
 export default async function PortfolioPage() {
   const user = await requireUser();
-  // lazily refresh stale prices, but never block render for long
-  await refreshIfStale(user.id, 2500).catch(() => false);
+  // lazily refresh stale prices: wait at most 2.5 s, the rest finishes after the response via after()
+  const refresh = await startRefreshIfStale(user.id).catch(() => null);
+  if (refresh) {
+    const { job } = refresh;
+    const done = await Promise.race([job.then(() => true), new Promise<false>((r) => setTimeout(() => r(false), 2500))]);
+    // re-snapshot once the background refresh lands so today's net worth uses fresh prices
+    if (!done) after(job.then(() => snapshotNetWorth(user.id)).catch((e) => console.error("snapshotNetWorth", e)));
+  }
   const overview = await getPortfolioOverview(user.id);
   if (overview.holdings.length || overview.liabilities.length) {
     await snapshotNetWorth(user.id).catch((e) => console.error("snapshotNetWorth", e));
@@ -58,6 +65,11 @@ export default async function PortfolioPage() {
                 </>
               )}
             </div>
+            {o.fxMissing.length > 0 && (
+              <p className="mt-2 text-xs text-muted">
+                Chybí kurz {o.fxMissing.join(", ")} – tato aktiva nejsou v součtech započtena a dnešní snapshot se neuloží.
+              </p>
+            )}
             <div className="mt-5">
               <NetWorthChart data={history} />
             </div>

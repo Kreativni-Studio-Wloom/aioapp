@@ -9,8 +9,10 @@ import { z } from "zod";
 import { isoDate } from "@/lib/format";
 import * as workout from "@/lib/workout/service";
 import * as nutrition from "@/lib/nutrition/service";
+import { foodShape as nutritionFoodShape, profileShape as nutritionProfileShape } from "@/lib/nutrition/schemas";
 import * as income from "@/lib/income/service";
 import * as portfolio from "@/lib/portfolio/service";
+import * as goals from "@/lib/goals/service";
 import { getWorkoutSummary } from "@/lib/workout/summary";
 import { getNutritionSummary } from "@/lib/nutrition/summary";
 import { getIncomeSummary } from "@/lib/income/summary";
@@ -47,6 +49,54 @@ export const TOOLS: ToolDef[] = [
       const [w, n, i, p] = await Promise.allSettled([getWorkoutSummary(u), getNutritionSummary(u), getIncomeSummary(u), getPortfolioSummary(u)]);
       const v = <T,>(r: PromiseSettledResult<T>) => (r.status === "fulfilled" ? r.value : { error: String(r.reason) });
       return { today: isoDate(), workout: v(w), nutrition: v(n), income: v(i), portfolio: v(p) };
+    },
+  }),
+  tool({
+    name: "list_goals",
+    description: "The user's goals across modules (strength 1RM, body weight, yearly income, net worth, portfolio value) with live current value, progress 0–1, deadline and days left.",
+    module: "general",
+    write: false,
+    schema: z.object({}),
+    run: (u) => goals.listGoals(u),
+  }),
+  tool({
+    name: "create_goal",
+    description:
+      "Create a goal. kind: exercise_1rm (needs exerciseId from search_exercises, target kg), body_weight (target kg), income_year (net CZK this calendar year, optional sourceId from list_income_sources), net_worth (CZK), portfolio_value (CZK).",
+    module: "general",
+    write: true,
+    schema: z.object({
+      kind: z.enum(["exercise_1rm", "body_weight", "income_year", "net_worth", "portfolio_value"]),
+      target: z.number().positive(),
+      exerciseId: z.string().uuid().optional(),
+      sourceId: z.string().uuid().optional(),
+      deadline: date.optional(),
+      title: z.string().max(120).optional(),
+    }),
+    summarize: (i) => `Nový cíl: ${i.title ?? i.kind} → ${i.target}${i.deadline ? ` do ${i.deadline}` : ""}`,
+    run: (u, i) => {
+      const metric: goals.GoalMetric =
+        i.kind === "exercise_1rm"
+          ? (() => {
+              if (!i.exerciseId) throw new Error("exerciseId is required for exercise_1rm");
+              return { kind: "exercise_1rm" as const, exerciseId: i.exerciseId };
+            })()
+          : i.kind === "income_year"
+            ? { kind: "income_year", sourceId: i.sourceId }
+            : { kind: i.kind };
+      return goals.createGoal(u, { metric, target: i.target, deadline: i.deadline, title: i.title });
+    },
+  }),
+  tool({
+    name: "delete_goal",
+    description: "Delete a goal by id (from list_goals).",
+    module: "general",
+    write: true,
+    schema: z.object({ goalId: z.string().uuid() }),
+    summarize: () => "Smazat cíl",
+    run: async (u, i) => {
+      await goals.deleteGoal(u, i.goalId);
+      return { ok: true };
     },
   }),
 
@@ -166,7 +216,8 @@ export const TOOLS: ToolDef[] = [
   }),
   tool({
     name: "update_program_exercise",
-    description: "Change sets/reps/rest/RPE/increment/notes of an exercise in a program (programExerciseId from get_program).",
+    description:
+      "Change sets/reps/rest/RPE/increment/progression/notes of an exercise in a program (programExerciseId from get_program). progression: 'double' = double progression (add reps up to repMax, then add incrementKg), 'none' = no automatic progression hints.",
     module: "workout",
     write: true,
     schema: z.object({
@@ -178,6 +229,7 @@ export const TOOLS: ToolDef[] = [
       restSeconds: z.number().int().optional(),
       targetRpe: z.number().optional(),
       incrementKg: z.number().optional(),
+      progression: z.enum(["double", "none"]).optional(),
       notes: z.string().optional(),
     }),
     summarize: (i) => {
@@ -187,6 +239,7 @@ export const TOOLS: ToolDef[] = [
         i.restSeconds != null && `pauza ${i.restSeconds} s`,
         i.targetRpe != null && `RPE ${i.targetRpe}`,
         i.incrementKg != null && `přírůstek ${i.incrementKg} kg`,
+        i.progression && (i.progression === "double" ? "dvojitá progrese" : "bez progrese"),
         i.notes && `pozn.: ${i.notes}`,
       ].filter(Boolean);
       return `Upravit ${i.exerciseName}: ${parts.join(", ")}`;
@@ -288,7 +341,7 @@ export const TOOLS: ToolDef[] = [
     description: "Business events (e.g. festivals) with ids, optionally for one source.",
     module: "income",
     write: false,
-    schema: z.object({ sourceId: z.string().optional() }),
+    schema: z.object({ sourceId: z.string().uuid("Neplatné sourceId – použij id z list_income_sources").optional() }),
     run: (u, i) => income.listEvents(u, i.sourceId),
   }),
   tool({
@@ -296,7 +349,7 @@ export const TOOLS: ToolDef[] = [
     description: "Income/expense totals, average monthly net, monthly series and breakdown by source for a year ('all' for everything).",
     module: "income",
     write: false,
-    schema: z.object({ year: z.union([z.number().int(), z.literal("all")]).optional() }),
+    schema: z.object({ year: z.union([z.number().int().min(1990).max(2100), z.literal("all")]).optional() }),
     run: (u, i) => income.getOverview(u, { year: i.year ?? new Date().getFullYear() }),
   }),
   tool({
@@ -304,7 +357,7 @@ export const TOOLS: ToolDef[] = [
     description: "Income, expenses, profit and margin of one event.",
     module: "income",
     write: false,
-    schema: z.object({ eventId: z.string() }),
+    schema: z.object({ eventId: z.string().uuid("Neplatné eventId – použij id z list_events") }),
     run: (u, i) => income.getEventStats(u, i.eventId),
   }),
   tool({
@@ -315,8 +368,8 @@ export const TOOLS: ToolDef[] = [
     schema: z.object({
       from: date.optional(),
       to: date.optional(),
-      sourceId: z.string().optional(),
-      eventId: z.string().optional(),
+      sourceId: z.string().uuid("Neplatné sourceId – použij id z list_income_sources").or(z.literal("none")).optional().describe("uuid, or 'none' for transactions without a source"),
+      eventId: z.string().uuid("Neplatné eventId – použij id z list_events").optional(),
       kind: z.enum(["income", "expense"]).optional(),
       limit: z.number().int().max(200).optional(),
     }),
@@ -332,8 +385,8 @@ export const TOOLS: ToolDef[] = [
       amount: z.number().positive(),
       currency: z.string().length(3).optional(),
       date: date.optional(),
-      sourceId: z.string().optional(),
-      eventId: z.string().optional(),
+      sourceId: z.string().uuid("Neplatné sourceId – použij id z list_income_sources").optional(),
+      eventId: z.string().uuid("Neplatné eventId – použij id z list_events").optional(),
       category: z.string().optional(),
       note: z.string().optional(),
       label: z.string().describe("Short human label for the approval card, e.g. 'Tržba – Letní festival'"),
@@ -346,7 +399,7 @@ export const TOOLS: ToolDef[] = [
     description: "Create a business event (e.g. a festival) under an income source.",
     module: "income",
     write: true,
-    schema: z.object({ sourceId: z.string(), name: z.string(), location: z.string().optional(), startDate: date, endDate: date.optional() }),
+    schema: z.object({ sourceId: z.string().uuid("Neplatné sourceId – použij id z list_income_sources"), name: z.string(), location: z.string().optional(), startDate: date, endDate: date.optional() }),
     summarize: (i) => `Vytvořit event „${i.name}“ (${i.startDate})`,
     run: (u, i) => income.createEvent(u, i),
   }),
@@ -370,7 +423,8 @@ export const TOOLS: ToolDef[] = [
   }),
   tool({
     name: "add_asset_transaction",
-    description: "Record a buy/sell/dividend/withdrawal/valuation for an existing asset (assetId from get_portfolio).",
+    description:
+      "Record a buy/sell/dividend/fee/valuation for an existing asset (assetId from get_portfolio). 'withdrawal' (profit taken out) is only for manually valued assets (cash, real estate); market assets realize profit via 'sell'. Sells larger than the held quantity are rejected. For buy/sell give price per unit, or amount (total) and it is derived.",
     module: "portfolio",
     write: true,
     schema: z.object({
@@ -488,7 +542,7 @@ export const TOOLS: ToolDef[] = [
     description: "Detailed stats of one income source (totals, monthly series, events).",
     module: "income",
     write: false,
-    schema: z.object({ sourceId: z.string() }),
+    schema: z.object({ sourceId: z.string().uuid("Neplatné sourceId – použij id z list_income_sources") }),
     run: (u, i) => income.getSourceStats(u, i.sourceId),
   }),
   tool({
@@ -496,7 +550,7 @@ export const TOOLS: ToolDef[] = [
     description: "Event analytics: best/worst events, average profit per event and per day.",
     module: "income",
     write: false,
-    schema: z.object({ sourceId: z.string().optional(), year: z.number().int().optional() }),
+    schema: z.object({ sourceId: z.string().uuid("Neplatné sourceId – použij id z list_income_sources").optional(), year: z.number().int().min(1990).max(2100).optional() }),
     run: (u, i) => income.getEventAnalytics(u, i),
   }),
   tool({
@@ -504,7 +558,7 @@ export const TOOLS: ToolDef[] = [
     description: "Recurring income/expense rules (e.g. monthly rent).",
     module: "income",
     write: false,
-    schema: z.object({ sourceId: z.string().optional() }),
+    schema: z.object({ sourceId: z.string().uuid("Neplatné sourceId – použij id z list_income_sources").optional() }),
     run: (u, i) => income.listRecurringRules(u, i.sourceId),
   }),
   tool({
@@ -543,11 +597,12 @@ export const TOOLS: ToolDef[] = [
   /* ═════════════ Extended write access ═════════════ */
   tool({
     name: "start_workout",
-    description: "Start a workout (from a program day id, or empty with a name). Returns the workout id; resumes an unfinished one if it exists.",
+    description:
+      "Start a workout (from a program day id, or empty with a name). Returns the workout id; resumes an unfinished one if it exists. Pass date (YYYY-MM-DD, past) to log a workout done on an earlier day: then log its sets with log_set and call finish_workout – it stays dated on that day.",
     module: "workout",
     write: true,
-    schema: z.object({ programDayId: z.string().optional(), name: z.string().optional() }),
-    summarize: (i) => `Začít trénink${i.name ? ` „${i.name}“` : ""}`,
+    schema: z.object({ programDayId: z.string().optional(), name: z.string().optional(), date: date.optional() }),
+    summarize: (i) => `${i.date && i.date !== isoDate() ? `Zapsat trénink z ${i.date}` : "Začít trénink"}${i.name ? ` „${i.name}“` : ""}`,
     run: (u, i) => workout.startWorkout(u, i),
   }),
   tool({
@@ -724,39 +779,21 @@ export const TOOLS: ToolDef[] = [
   }),
   tool({
     name: "update_nutrition_profile",
-    description: "Update nutrition profile: sex (male|female), birthDate, heightCm, activityLevel (sedentary|light|moderate|active|very_active), goal (lose|maintain|gain), rateKgPerWeek, proteinPerKg, fatPct (0-1), kcalOverride (null = computed).",
+    description: "Update nutrition profile (only the given fields): sex (male|female), birthDate, heightCm (100-250), activityLevel (sedentary|light|moderate|active|very_active), goal (lose|maintain|gain), rateKgPerWeek (0-1.5), proteinPerKg (0.5-4), fatPct (0.1-0.6), kcalOverride (800-8000, null = computed).",
     module: "nutrition",
     write: true,
-    schema: z.object({
-      sex: z.enum(["male", "female"]).optional(),
-      birthDate: date.optional(),
-      heightCm: z.number().optional(),
-      activityLevel: z.enum(["sedentary", "light", "moderate", "active", "very_active"]).optional(),
-      goal: z.enum(["lose", "maintain", "gain"]).optional(),
-      rateKgPerWeek: z.number().optional(),
-      proteinPerKg: z.number().optional(),
-      fatPct: z.number().optional(),
-      kcalOverride: z.number().int().nullable().optional(),
-    }),
+    // same limits as the profile form's server action
+    schema: z.object(nutritionProfileShape(() => z.number())).partial(),
     summarize: (i) => `Upravit profil výživy: ${Object.entries(i).map(([k, v]) => `${k}=${v}`).join(", ")}`,
     run: (u, i) => nutrition.updateProfile(u, i),
   }),
   tool({
     name: "create_food",
-    description: "Create a custom food (values per 100 g).",
+    description: "Create a custom food (values per 100 g: kcal 0-1000, protein/carbs/fat/fiber/sugar/salt 0-100 g; servingG 0-5000).",
     module: "nutrition",
     write: true,
-    schema: z.object({
-      name: z.string(),
-      brand: z.string().optional(),
-      ean: z.string().optional(),
-      kcal: z.number(),
-      protein: z.number(),
-      carbs: z.number(),
-      fat: z.number(),
-      fiber: z.number().optional(),
-      servingG: z.number().optional(),
-    }),
+    // same limits as the food form's server action
+    schema: z.object(nutritionFoodShape(() => z.number())),
     summarize: (i) => `Nová potravina „${i.name}“ (${i.kcal} kcal/100 g)`,
     run: (u, i) => nutrition.createFood(u, i),
   }),
@@ -775,14 +812,14 @@ export const TOOLS: ToolDef[] = [
     module: "income",
     write: true,
     schema: z.object({
-      id: z.string(),
+      id: z.string().uuid("Neplatné id transakce – použij id z list_transactions"),
       label: z.string(),
       kind: z.enum(["income", "expense"]).optional(),
       amount: z.number().positive().optional(),
       currency: z.string().length(3).optional(),
       date: date.optional(),
-      sourceId: z.string().nullable().optional(),
-      eventId: z.string().nullable().optional(),
+      sourceId: z.string().uuid("Neplatné sourceId – použij id z list_income_sources").nullable().optional(),
+      eventId: z.string().uuid("Neplatné eventId – použij id z list_events").nullable().optional(),
       category: z.string().optional(),
       note: z.string().optional(),
     }),
@@ -794,7 +831,7 @@ export const TOOLS: ToolDef[] = [
     description: "Delete an income/expense transaction.",
     module: "income",
     write: true,
-    schema: z.object({ id: z.string(), label: z.string() }),
+    schema: z.object({ id: z.string().uuid("Neplatné id transakce – použij id z list_transactions"), label: z.string() }),
     summarize: (i) => `Smazat transakci ${i.label}`,
     run: (u, i) => income.deleteTransaction(u, i.id),
   }),
@@ -803,7 +840,14 @@ export const TOOLS: ToolDef[] = [
     description: "Edit a business event.",
     module: "income",
     write: true,
-    schema: z.object({ eventId: z.string(), name: z.string().optional(), location: z.string().optional(), startDate: date.optional(), endDate: date.optional(), notes: z.string().optional() }),
+    schema: z.object({
+      eventId: z.string().uuid("Neplatné eventId – použij id z list_events"),
+      name: z.string().optional(),
+      location: z.string().nullable().optional(),
+      startDate: date.optional(),
+      endDate: date.nullable().optional().describe("null clears the end date (one-day event)"),
+      notes: z.string().nullable().optional(),
+    }),
     summarize: (i) => `Upravit event${i.name ? ` „${i.name}“` : ""}`,
     run: (u, { eventId, ...patch }) => income.updateEvent(u, eventId, patch),
   }),
@@ -813,7 +857,7 @@ export const TOOLS: ToolDef[] = [
     module: "income",
     write: true,
     schema: z.object({
-      sourceId: z.string().optional(),
+      sourceId: z.string().uuid("Neplatné sourceId – použij id z list_income_sources").optional(),
       kind: z.enum(["income", "expense"]),
       amount: z.number().positive(),
       currency: z.string().length(3).optional(),
@@ -822,7 +866,12 @@ export const TOOLS: ToolDef[] = [
       note: z.string().optional(),
     }),
     summarize: (i) => `Opakovaně každý měsíc ${i.dayOfMonth}.: ${i.kind === "income" ? "příjem" : "výdaj"} ${i.amount} ${i.currency ?? "CZK"}`,
-    run: (u, i) => income.createRecurringRule(u, i),
+    run: async (u, i) => {
+      const rule = await income.createRecurringRule(u, i);
+      // materialise already-due months right away (same as opening the income page)
+      const { created } = await income.generateRecurring(u);
+      return { ...rule, generatedTransactions: created };
+    },
   }),
   tool({
     name: "create_asset",

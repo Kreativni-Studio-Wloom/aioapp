@@ -42,6 +42,18 @@ export const MIN_KCAL: Record<Sex, number> = { male: 1500, female: 1200 };
 /** Fallback targets when the profile is incomplete. */
 export const DEFAULT_KCAL = 2000;
 
+/**
+ * Training-day bump: carbs target +10 % (and the matching kcal, 4 kcal/g) on days with a workout.
+ * Deliberately modest; protein and fat targets stay the same.
+ */
+export const TRAINING_DAY_CARB_BONUS = 0.1;
+
+/** Extra carbs (g) and kcal for a training day, derived from the base carbs target. */
+export function trainingDayBonus(carbsTarget: number): { carbs: number; kcal: number } {
+  const carbs = Math.round(Math.max(0, carbsTarget) * TRAINING_DAY_CARB_BONUS);
+  return { carbs, kcal: carbs * 4 };
+}
+
 /** Suggest meal by local hour. */
 export function mealForHour(h: number): MealType {
   if (h < 10) return "breakfast";

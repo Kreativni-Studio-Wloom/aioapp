@@ -2,7 +2,8 @@
 
 // Offline-resilient mutation queue for the live session. Ops are persisted in localStorage,
 // coalesced per key (latest wins) and flushed sequentially; a thrown error (network) stops the
-// flush and it is retried on `online` / a timer. A server-side `{ ok: false }` drops the op.
+// flush and it is retried on `online` / a timer. A server-side `{ ok: false }` drops the op (retrying
+// would fail the same way) and is surfaced to the UI via `queueErrorSnapshot()`.
 
 import type { SetInput, WorkoutSetDTO } from "@/lib/workout/service";
 import { deleteSetAction, saveSetAction, updateWorkoutAction } from "../../actions";
@@ -44,6 +45,15 @@ export function subscribeQueue(l: Listener) {
 }
 export const queueSnapshot = () => ({ ...state, pending: read().length });
 
+export type QueueError = { message: string; kind: QueueOp["kind"]; id: string; at: number };
+let lastError: QueueError | null = null;
+/** Last op the server rejected (stable reference until it changes – safe for useSyncExternalStore). */
+export const queueErrorSnapshot = () => lastError;
+export function clearQueueError() {
+  lastError = null;
+  emit({});
+}
+
 export function pendingOps(workoutId: string) {
   return read().filter((o) => o.workoutId === workoutId);
 }
@@ -82,7 +92,10 @@ export function flush(): Promise<boolean> {
         if (!op) break;
         try {
           const r = await runOp(op);
-          if (!r.ok) console.warn("[workout queue] dropped op", op, r.error);
+          if (!r.ok) {
+            console.warn("[workout queue] dropped op", op, r.error);
+            lastError = { message: r.error, kind: op.kind, id: op.kind === "set" ? op.set.id : op.kind === "del" ? op.id : op.workoutId, at: Date.now() };
+          }
         } catch {
           emit({ offline: true });
           return false;

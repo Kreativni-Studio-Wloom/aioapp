@@ -30,9 +30,11 @@ export const viewport: Viewport = {
 };
 
 export default async function RootLayout({ children }: LayoutProps<"/">) {
-  const theme = (await cookies()).get("theme")?.value === "light" ? "light" : "dark";
+  const jar = await cookies();
+  const theme = jar.get("theme")?.value === "light" ? "light" : "dark";
+  const privacy = jar.get("privacy")?.value === "on" ? "on" : "off";
   return (
-    <html lang="cs" data-theme={theme} className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
+    <html lang="cs" data-theme={theme} data-privacy={privacy} className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
       <body className="min-h-full">
         {children}
         <ServiceWorker />

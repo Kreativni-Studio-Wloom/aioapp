@@ -7,7 +7,7 @@ import { db, t } from "@/db";
 import { fxRate } from "@/lib/fx";
 import { addDays, isoDate } from "@/lib/format";
 import { addTransaction as addIncomeTransaction, createSource as createIncomeSource } from "@/lib/income/service";
-import { computePosition, fifoLots, manualValueSeries, type Lot } from "./calc";
+import { computePosition, fifoLots, findOversell, manualValueSeries, type Lot, type TxLike } from "./calc";
 import {
   CLASS_LABEL,
   INCOME_CATEGORY,
@@ -39,8 +39,10 @@ export type Holding = Asset & {
   withdrawn: number;
   fees: number;
   lastValuationDate: string | null;
-  /** CZK per 1 unit of asset currency (today) */
+  /** CZK per 1 unit of asset currency (today); 0 when no rate is known (see fxMissing) */
   fx: number;
+  /** no FX rate available for the asset currency → CZK values are unknown (reported as 0) */
+  fxMissing: boolean;
   valueCzk: number;
   investedCzk: number;
   unrealizedCzk: number;
@@ -86,6 +88,8 @@ export type Liability = {
   notes: string | null;
   updatedAt: string;
   balanceCzk: number;
+  /** no FX rate available → balanceCzk unknown (reported as 0) */
+  fxMissing: boolean;
 };
 
 export type PortfolioOverview = {
@@ -106,6 +110,8 @@ export type PortfolioOverview = {
   liabilities: Liability[];
   /** oldest price timestamp among market-priced holdings */
   pricesAsOf: string | null;
+  /** currencies without any known FX rate – totals exclude those holdings/liabilities */
+  fxMissing: string[];
 };
 
 export type CreateAssetInput = {
@@ -159,19 +165,89 @@ const serializeTx = (x: AssetTxRow): AssetTx => {
 
 const isManual = (a: Pick<AssetRow, "priceSource">) => a.priceSource === "manual";
 
-async function fxMap(currencies: string[]): Promise<Record<string, number>> {
-  const out: Record<string, number> = {};
+/** Latest cached ČNB rate for a currency regardless of age (null if none was ever stored). */
+async function lastKnownRate(currency: string): Promise<number | null> {
+  const [r] = await db
+    .select({ rate: t.fxRates.rate })
+    .from(t.fxRates)
+    .where(eq(t.fxRates.currency, currency))
+    .orderBy(desc(t.fxRates.date))
+    .limit(1);
+  return r?.rate ?? null;
+}
+
+/** Today's CZK rate per currency; on lookup failure the last cached rate, else null (= unknown, never a fake 1). */
+async function fxMap(currencies: string[]): Promise<Record<string, number | null>> {
+  const out: Record<string, number | null> = {};
   await Promise.all(
     [...new Set(currencies)].map(async (c) => {
       try {
         out[c] = await fxRate(c);
       } catch (e) {
         console.error("portfolio fx", c, e);
-        out[c] = 1;
+        out[c] = await lastKnownRate(c).catch(() => null);
       }
     }),
   );
   return out;
+}
+
+const MAX_FX_FETCHES = 40;
+
+/**
+ * Resolver for historical CZK rates (transaction-date conversion of realized P/L and dividends).
+ * Uses cached ČNB rates; dates without a fixing within 4 days are fetched via fxRate (capped),
+ * otherwise falls back to the nearest cached rate. Returns null when nothing is known.
+ */
+async function historicalRates(pairs: { currency: string; date: string }[]): Promise<(currency: string, date: string) => number | null> {
+  const need = pairs.filter((p) => p.currency !== "CZK");
+  const currencies = [...new Set(need.map((p) => p.currency))];
+  const byCur = new Map<string, { date: string; rate: number }[]>();
+  if (currencies.length) {
+    const rows = await db
+      .select({ currency: t.fxRates.currency, date: t.fxRates.date, rate: t.fxRates.rate })
+      .from(t.fxRates)
+      .where(inArray(t.fxRates.currency, currencies))
+      .orderBy(asc(t.fxRates.date));
+    for (const r of rows) byCur.set(r.currency, [...(byCur.get(r.currency) ?? []), r]);
+  }
+  const nearest = (currency: string, date: string) => {
+    const list = byCur.get(currency) ?? [];
+    let before: { date: string; rate: number } | null = null;
+    for (const r of list) {
+      if (r.date <= date) before = r;
+      else return { before, after: r };
+    }
+    return { before, after: null };
+  };
+  const resolved = new Map<string, number | null>();
+  const missing: { currency: string; date: string }[] = [];
+  for (const p of need) {
+    const key = `${p.currency}|${p.date}`;
+    if (resolved.has(key)) continue;
+    const { before, after } = nearest(p.currency, p.date);
+    const fresh = before && (new Date(p.date).getTime() - new Date(before.date).getTime()) / 864e5 <= 4;
+    if (fresh) resolved.set(key, before.rate);
+    else {
+      resolved.set(key, before?.rate ?? after?.rate ?? null);
+      missing.push(p);
+    }
+  }
+  await pool(missing.slice(0, MAX_FX_FETCHES), 4, async (p) => {
+    try {
+      resolved.set(`${p.currency}|${p.date}`, await fxRate(p.currency, p.date));
+    } catch {
+      /* keep nearest cached rate */
+    }
+  });
+  return (currency, date) => (currency === "CZK" ? 1 : (resolved.get(`${currency}|${date}`) ?? null));
+}
+
+/** Σ amount(date) × rate(date); dates without a historical rate use `fallback` (today's rate). */
+function convertByDate(byDate: Record<string, number>, rateAt: (date: string) => number | null, fallback: number) {
+  let sum = 0;
+  for (const [date, v] of Object.entries(byDate)) sum += v * (rateAt(date) ?? fallback);
+  return sum;
 }
 
 async function pool<T>(items: T[], size: number, fn: (item: T) => Promise<void>) {
@@ -264,10 +340,24 @@ async function buildHoldings(userId: string, rows: AssetRow[]): Promise<Holding[
   const histBy = new Map<string, { date: string; price: number }[]>();
   for (const h of hist) histBy.set(h.assetId, [...(histBy.get(h.assetId) ?? []), h]);
 
+  const currencyOf = new Map(rows.map((r) => [r.id, r.currency]));
+  const rateAt = await historicalRates(
+    txs
+      .filter((x) => x.type === "sell" || x.type === "fee" || x.type === "dividend" || x.type === "withdrawal")
+      .map((x) => ({ currency: currencyOf.get(x.assetId) ?? "CZK", date: x.date })),
+  );
+
   const holdings = rows.map((a): Holding => {
     const manual = isManual(a);
     const s = computePosition(txBy.get(a.id) ?? [], { manual, lastPrice: a.lastPrice });
-    const rate = fx[a.currency] ?? 1;
+    const known = fx[a.currency];
+    const fxMissing = known == null;
+    const rate = known ?? 0;
+    const at = (date: string) => (fxMissing ? 0 : rateAt(a.currency, date));
+    // realized P/L and dividends at the FX rate of their transaction date; profit withdrawals
+    // count as realized only for manual assets (market assets realize via sells)
+    const realizedCzk = convertByDate(s.realizedByDate, at, rate) + (manual ? convertByDate(s.withdrawnByDate, at, rate) : 0);
+    const dividendsCzk = convertByDate(s.dividendsByDate, at, rate);
     const h = histBy.get(a.id) ?? [];
     let prevPrice: number | null = null;
     let dayChange = 0;
@@ -294,11 +384,12 @@ async function buildHoldings(userId: string, rows: AssetRow[]): Promise<Holding[
       fees: s.fees,
       lastValuationDate: s.lastValuationDate,
       fx: rate,
+      fxMissing,
       valueCzk: s.value * rate,
       investedCzk: s.invested * rate,
       unrealizedCzk: s.unrealized * rate,
-      realizedCzk: (s.realized + s.withdrawn) * rate,
-      dividendsCzk: s.dividends * rate,
+      realizedCzk,
+      dividendsCzk,
       prevPrice,
       dayChangeCzk: dayChange * rate,
       dayChangePct: prevValue > 0 ? (dayChange / prevValue) * 100 : 0,
@@ -306,8 +397,9 @@ async function buildHoldings(userId: string, rows: AssetRow[]): Promise<Holding[
       sparkline: manual ? [] : h.slice(-30).map((p) => p.price),
     };
   });
-  const total = holdings.reduce((s, h) => s + h.valueCzk, 0);
-  for (const h of holdings) h.weightPct = total > 0 ? (h.valueCzk / total) * 100 : 0;
+  // weights are shares of the active portfolio – archived assets get 0 and don't dilute the rest
+  const total = holdings.reduce((s, h) => s + (h.archived ? 0 : h.valueCzk), 0);
+  for (const h of holdings) h.weightPct = !h.archived && total > 0 ? (h.valueCzk / total) * 100 : 0;
   return holdings.sort((a, b) => b.valueCzk - a.valueCzk);
 }
 
@@ -336,7 +428,7 @@ export async function getAsset(userId: string, id: string): Promise<AssetDetail 
   // weight within the whole portfolio
   const all = await listHoldings(userId);
   const total = all.reduce((s, h) => s + h.valueCzk, 0);
-  holding.weightPct = total > 0 ? (holding.valueCzk / total) * 100 : 0;
+  holding.weightPct = !holding.archived && total > 0 ? (holding.valueCzk / total) * 100 : 0;
   return {
     asset: holding,
     transactions: txs.map(serializeTx),
@@ -459,13 +551,36 @@ export async function addAssetTransaction(
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date)) throw new Error("Neplatné datum");
   const manual = isManual(a);
   const quantity = Math.abs(input.quantity ?? 0);
-  const price = Math.abs(input.price ?? 0);
+  let price = Math.abs(input.price ?? 0);
   const fee = Math.abs(input.fee ?? 0);
   let amount = Math.abs(input.amount ?? 0);
 
+  if (input.type === "withdrawal" && !manual) {
+    throw new Error("U tržních aktiv se zisk vybírá prodejem – zadej transakci Prodej");
+  }
+
   if ((input.type === "buy" || input.type === "sell") && !manual) {
     if (!(quantity > 0)) throw new Error("Zadej množství");
+    // only a total given (e.g. CSV) → derive the unit price; never store a silent zero cost
+    if (!(price > 0) && amount > 0) price = amount / quantity;
+    if (!(price > 0)) throw new Error("Zadej cenu za kus nebo celkovou částku");
     amount = quantity * price;
+    if (input.type === "sell") {
+      const existing = await db
+        .select()
+        .from(t.assetTransactions)
+        .where(and(eq(t.assetTransactions.userId, userId), eq(t.assetTransactions.assetId, a.id)));
+      const candidate: TxLike = { type: "sell", date: input.date, quantity, price, fee, amount, createdAt: new Date() };
+      const over = findOversell<TxLike>([...existing, candidate]);
+      if (over) {
+        const fmt = (n: number) => n.toLocaleString("cs-CZ", { maximumFractionDigits: 8 });
+        throw new Error(
+          over.tx === candidate
+            ? `Nelze prodat ${fmt(quantity)} ks – k ${over.date} držíš jen ${fmt(over.held)} ks`
+            : `Prodej by způsobil, že pozdější prodej ${over.date} (${fmt(over.quantity)} ks) překročí držené množství (${fmt(over.held)} ks)`,
+        );
+      }
+    }
   } else if (input.type === "valuation") {
     if (!(input.amount != null && input.amount >= 0)) throw new Error("Zadej hodnotu");
     amount = input.amount;
@@ -546,19 +661,26 @@ export async function deleteAssetTransaction(userId: string, id: string): Promis
  * Refresh market prices (Yahoo + CoinGecko) for one user or – without userId – for everyone.
  * Failures keep the previous price and are reported in `errors`.
  */
-export async function refreshPrices(userId?: string): Promise<{ updated: number; errors: string[] }> {
+export async function refreshPrices(userId?: string, opts: { deadline?: number } = {}): Promise<{ updated: number; errors: string[]; skipped: number }> {
   const where = and(ne(t.assets.priceSource, "manual"), eq(t.assets.archived, false), userId ? eq(t.assets.userId, userId) : undefined);
   const rows = await db.select().from(t.assets).where(where);
   const errors: string[] = [];
   let updated = 0;
+  let skipped = 0;
   const now = new Date();
   const today = isoDate();
+  /** global time budget: stop starting new fetches once the deadline passes */
+  const timeUp = () => opts.deadline != null && Date.now() > opts.deadline;
 
   // Yahoo – one request per unique symbol
   const yahoo = rows.filter((r) => r.priceSource === "yahoo" && r.externalId);
   const bySymbol = new Map<string, AssetRow[]>();
   for (const r of yahoo) bySymbol.set(r.externalId!, [...(bySymbol.get(r.externalId!) ?? []), r]);
   await pool([...bySymbol.keys()], 4, async (symbol) => {
+    if (timeUp()) {
+      skipped += bySymbol.get(symbol)!.length;
+      return;
+    }
     try {
       const q = await yahooQuote(symbol, "5d");
       for (const a of bySymbol.get(symbol)!) {
@@ -580,6 +702,10 @@ export async function refreshPrices(userId?: string): Promise<{ updated: number;
   const coins = rows.filter((r) => r.priceSource === "coingecko" && r.externalId);
   for (let i = 0; i < coins.length; i += 100) {
     const chunk = coins.slice(i, i + 100);
+    if (timeUp()) {
+      skipped += chunk.length;
+      continue;
+    }
     try {
       const prices = await coinPrices(
         chunk.map((c) => c.externalId!),
@@ -603,20 +729,31 @@ export async function refreshPrices(userId?: string): Promise<{ updated: number;
       errors.push(`CoinGecko: ${(e as Error).message}`);
     }
   }
-  return { updated, errors };
+  if (skipped) errors.push(`Časový limit: ${skipped} aktiv bez aktualizace`);
+  return { updated, errors, skipped };
 }
 
-/** Refresh the user's prices if any market price is older than ~6 h; gives up waiting after `timeoutMs` (refresh continues in background). */
-export async function refreshIfStale(userId: string, timeoutMs = 2500): Promise<boolean> {
+/** True if any active market-priced asset has a price older than ~6 h (or none yet). */
+export async function pricesStale(userId: string): Promise<boolean> {
   const rows = await db
     .select({ at: t.assets.lastPriceAt })
     .from(t.assets)
     .where(and(eq(t.assets.userId, userId), ne(t.assets.priceSource, "manual"), eq(t.assets.archived, false)));
-  const stale = rows.some((r) => !r.at || Date.now() - r.at.getTime() > STALE_PRICE_MS);
-  if (!stale) return false;
-  const job = refreshPrices(userId).catch((e) => console.error("refreshIfStale", e));
-  await Promise.race([job, new Promise((r) => setTimeout(r, timeoutMs))]);
-  return true;
+  return rows.some((r) => !r.at || Date.now() - r.at.getTime() > STALE_PRICE_MS);
+}
+
+/**
+ * Starts a price refresh if prices are stale and returns `{ job }` (never rejects), or null.
+ * The caller owns the lifetime: in Next, pass the job to `after()` so it isn't cut off after the response.
+ */
+export async function startRefreshIfStale(userId: string): Promise<{ job: Promise<void> } | null> {
+  if (!(await pricesStale(userId))) return null;
+  // wrapped in an object so `await` doesn't flatten (and thus wait for) the job
+  const job = refreshPrices(userId).then(
+    () => undefined,
+    (e) => console.error("refreshIfStale", e),
+  );
+  return { job };
 }
 
 export async function getPriceHistory(userId: string, assetId: string, days = 365) {
@@ -642,7 +779,8 @@ export async function listLiabilities(userId: string): Promise<Liability[]> {
     interestRate: r.interestRate,
     notes: r.notes,
     updatedAt: r.updatedAt.toISOString(),
-    balanceCzk: r.balance * (fx[r.currency] ?? 1),
+    balanceCzk: r.balance * (fx[r.currency] ?? 0),
+    fxMissing: fx[r.currency] == null,
   }));
 }
 
@@ -718,6 +856,7 @@ export async function getPortfolioOverview(userId: string): Promise<PortfolioOve
     })
     .sort((a, b) => Math.abs(b.driftPp) - Math.abs(a.driftPp));
 
+  const fxMissing = [...new Set([...holdings.filter((h) => h.fxMissing).map((h) => h.currency), ...liabilities.filter((l) => l.fxMissing).map((l) => l.currency)])];
   const market = holdings.filter((h) => !h.manual && h.lastPriceAt);
   const pricesAsOf = market.length ? market.map((h) => h.lastPriceAt!).sort()[0] : null;
   const prevTotal = totalCzk - dayChangeCzk;
@@ -739,14 +878,19 @@ export async function getPortfolioOverview(userId: string): Promise<PortfolioOve
     archived,
     liabilities,
     pricesAsOf,
+    fxMissing,
   };
 }
 
 export type NetWorthPoint = { date: string; assetsCzk: number; liabilitiesCzk: number; netCzk: number };
 
-/** Upsert today's (or `date`'s) net-worth snapshot from current values. */
+/**
+ * Upsert today's (or `date`'s) net-worth snapshot from current values.
+ * Throws (writes nothing) when an FX rate is unknown – a gap is better than a wrong data point.
+ */
 export async function snapshotNetWorth(userId: string, date: string = isoDate()): Promise<NetWorthPoint> {
   const o = await getPortfolioOverview(userId);
+  if (o.fxMissing.length) throw new Error(`Snapshot čistého jmění přeskočen – chybí kurz ${o.fxMissing.join(", ")}`);
   const values = { assetsCzk: o.totalCzk, liabilitiesCzk: o.liabilitiesCzk, netCzk: o.netWorthCzk };
   await db
     .insert(t.netWorthSnapshots)

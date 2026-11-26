@@ -111,11 +111,12 @@ export type MonthPoint = { month: string; label: string; income: number; expense
 export type Overview = {
   period: { kind: "month" | "year" | "all"; year: number | null; month: string | null; from: string | null; to: string | null; label: string };
   totals: Totals;
-  /** Average monthly net over the elapsed months of the selected year (or the whole history for "all"). */
+  /** Average monthly net over the complete months of the selected year (or the whole history for "all");
+   *  the current month alone while no month is complete yet; 0 with monthsCounted = 0 for future years. */
   avgMonthlyNet: number;
   avgMonthlyIncome: number;
   monthsCounted: number;
-  /** Average monthly net over the trailing 12 months (incl. the current month; fewer if history is shorter). */
+  /** Average monthly net over the trailing 12 complete months (fewer if history is shorter; current month alone if none). */
   avgMonthlyNet12m: number;
   /** Same period one year earlier (YTD vs YTD for the current year), null for "all". */
   comparison: (Totals & { label: string; netChangePct: number | null; incomeChangePct: number | null }) | null;
@@ -190,12 +191,33 @@ const clean = (s: string | null | undefined) => {
   return v ? v : null;
 };
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+export const MIN_YEAR = 1990;
+export const MAX_YEAR = 2100;
+export const isValidYear = (y: number) => Number.isInteger(y) && y >= MIN_YEAR && y <= MAX_YEAR;
+/** Strict YYYY-MM with month 01–12 and a sane year. */
+export function isValidYm(ym: string | null | undefined): ym is string {
+  return !!ym && /^\d{4}-(0[1-9]|1[0-2])$/.test(ym) && isValidYear(Number(ym.slice(0, 4)));
+}
+/** Strict YYYY-MM-DD that is a real calendar date within the year range. */
+export function isValidIsoDate(d: string | null | undefined): d is string {
+  if (!d || !DATE_RE.test(d) || !isValidYear(Number(d.slice(0, 4)))) return false;
+  const p = new Date(`${d}T00:00:00Z`);
+  return !Number.isNaN(p.getTime()) && p.toISOString().slice(0, 10) === d;
+}
 function checkDate(d: string) {
-  if (!DATE_RE.test(d) || Number.isNaN(Date.parse(d))) throw new IncomeError("Neplatné datum");
+  if (!isValidIsoDate(d)) throw new IncomeError("Neplatné datum");
   return d;
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const isUuid = (s: string | null | undefined): s is string => !!s && UUID_RE.test(s);
+/** Malformed ids would make Postgres throw – treat them as "not found" instead. */
+function needId(id: string, notFound: string) {
+  if (!isUuid(id)) throw new IncomeError(notFound);
+}
+
 async function ownSource(userId: string, sourceId: string) {
+  needId(sourceId, "Zdroj nenalezen");
   const [row] = await db
     .select()
     .from(t.incomeSources)
@@ -206,6 +228,7 @@ async function ownSource(userId: string, sourceId: string) {
 }
 
 async function ownEvent(userId: string, eventId: string) {
+  needId(eventId, "Akce nenalezena");
   const [row] = await db
     .select()
     .from(t.events)
@@ -216,6 +239,7 @@ async function ownEvent(userId: string, eventId: string) {
 }
 
 async function ownAsset(userId: string, assetId: string) {
+  needId(assetId, "Aktivum nenalezeno");
   const [row] = await db
     .select({ id: t.assets.id })
     .from(t.assets)
@@ -302,6 +326,7 @@ export async function archiveSource(userId: string, sourceId: string, archived =
 
 /** Deletes a source with its events and recurring rules; its transactions are kept (without a source). */
 export async function deleteSource(userId: string, sourceId: string) {
+  needId(sourceId, "Zdroj nenalezen");
   await db.delete(t.incomeSources).where(and(eq(t.incomeSources.id, sourceId), eq(t.incomeSources.userId, userId)));
 }
 
@@ -316,12 +341,23 @@ function withEventStats(e: IncomeEvent, income: number, expense: number, count: 
 export async function listEvents(
   userId: string,
   sourceId?: string,
-  opts: { from?: string; to?: string } = {},
+  /**
+   * from/to filter events by start date. With `clipToPeriod`, they instead limit the counted
+   * transactions to that date range (events are included regardless of their start date).
+   */
+  opts: { from?: string; to?: string; clipToPeriod?: boolean } = {},
 ): Promise<EventWithStats[]> {
+  if (sourceId) needId(sourceId, "Zdroj nenalezen");
   const where: (SQL | undefined)[] = [eq(t.events.userId, userId)];
   if (sourceId) where.push(eq(t.events.sourceId, sourceId));
-  if (opts.from) where.push(gte(t.events.startDate, opts.from));
-  if (opts.to) where.push(lte(t.events.startDate, opts.to));
+  const join: (SQL | undefined)[] = [eq(tx.eventId, t.events.id)];
+  if (opts.clipToPeriod) {
+    if (opts.from) join.push(gte(tx.date, opts.from));
+    if (opts.to) join.push(lte(tx.date, opts.to));
+  } else {
+    if (opts.from) where.push(gte(t.events.startDate, opts.from));
+    if (opts.to) where.push(lte(t.events.startDate, opts.to));
+  }
   const rows = await db
     .select({
       event: t.events,
@@ -332,7 +368,7 @@ export async function listEvents(
     })
     .from(t.events)
     .innerJoin(t.incomeSources, eq(t.incomeSources.id, t.events.sourceId))
-    .leftJoin(tx, eq(tx.eventId, t.events.id))
+    .leftJoin(tx, and(...join))
     .where(and(...where))
     .groupBy(t.events.id, t.incomeSources.name)
     .orderBy(desc(t.events.startDate), desc(t.events.createdAt));
@@ -441,6 +477,7 @@ export async function getEventStats(userId: string, eventId: string): Promise<Ev
 }
 
 export async function getEventAnalytics(userId: string, opts: { sourceId?: string; year?: number } = {}): Promise<EventAnalytics> {
+  if (opts.year !== undefined && !isValidYear(opts.year)) throw new IncomeError("Neplatný rok");
   const range = opts.year ? { from: `${opts.year}-01-01`, to: `${opts.year}-12-31` } : {};
   const today = isoDate();
   // only events that already started count towards analytics
@@ -493,6 +530,7 @@ function mapTx(r: { tx: typeof tx.$inferSelect; sourceName: string | null; event
 }
 
 async function getTx(userId: string, id: string): Promise<Tx> {
+  needId(id, "Transakce nenalezena");
   const [row] = await db
     .select(txSelect)
     .from(tx)
@@ -548,6 +586,7 @@ export async function addTransaction(userId: string, input: TransactionInput): P
 }
 
 export async function updateTransaction(userId: string, id: string, patch: Partial<TransactionInput>): Promise<Tx> {
+  needId(id, "Transakce nenalezena");
   const [cur] = await db
     .select()
     .from(tx)
@@ -599,6 +638,7 @@ export async function updateTransaction(userId: string, id: string, patch: Parti
 }
 
 export async function deleteTransaction(userId: string, id: string) {
+  needId(id, "Transakce nenalezena");
   const res = await db
     .delete(tx)
     .where(and(eq(tx.id, id), eq(tx.userId, userId)))
@@ -607,6 +647,8 @@ export async function deleteTransaction(userId: string, id: string) {
 }
 
 function txWhere(userId: string, f: TransactionFilter) {
+  if (f.sourceId && f.sourceId !== "none") needId(f.sourceId, "Zdroj nenalezen");
+  if (f.eventId) needId(f.eventId, "Akce nenalezena");
   const where: (SQL | undefined)[] = [eq(tx.userId, userId)];
   if (f.from) where.push(gte(tx.date, f.from));
   if (f.to) where.push(lte(tx.date, f.to));
@@ -625,7 +667,7 @@ export async function listTransactions(userId: string, filter: TransactionFilter
     .leftJoin(t.incomeSources, eq(t.incomeSources.id, tx.sourceId))
     .leftJoin(t.events, eq(t.events.id, tx.eventId))
     .where(txWhere(userId, filter))
-    .orderBy(desc(tx.date), desc(tx.createdAt))
+    .orderBy(desc(tx.date), desc(tx.createdAt), desc(tx.id)) // total order → stable pagination
     .limit(Math.min(filter.limit ?? 200, 5000))
     .offset(filter.offset ?? 0);
   return rows.map(mapTx);
@@ -681,6 +723,7 @@ function mapRule(r: typeof t.recurringRules.$inferSelect, sourceName: string | n
 }
 
 export async function listRecurringRules(userId: string, sourceId?: string): Promise<RecurringRule[]> {
+  if (sourceId) needId(sourceId, "Zdroj nenalezen");
   const rows = await db
     .select({ rule: t.recurringRules, sourceName: t.incomeSources.name })
     .from(t.recurringRules)
@@ -700,7 +743,7 @@ function checkRule(input: Partial<RecurringRuleInput>) {
   if (input.amount !== undefined && (!Number.isFinite(input.amount) || input.amount <= 0)) throw new IncomeError("Zadej částku");
   if (input.dayOfMonth !== undefined && (!Number.isInteger(input.dayOfMonth) || input.dayOfMonth < 1 || input.dayOfMonth > 31))
     throw new IncomeError("Den v měsíci musí být 1–31");
-  if (input.startMonth !== undefined && !/^\d{4}-\d{2}$/.test(input.startMonth)) throw new IncomeError("Neplatný měsíc");
+  if (input.startMonth !== undefined && !isValidYm(input.startMonth)) throw new IncomeError("Neplatný měsíc");
 }
 
 export async function createRecurringRule(userId: string, input: RecurringRuleInput): Promise<RecurringRule> {
@@ -726,6 +769,7 @@ export async function createRecurringRule(userId: string, input: RecurringRuleIn
 }
 
 export async function updateRecurringRule(userId: string, id: string, patch: Partial<RecurringRuleInput>): Promise<RecurringRule> {
+  needId(id, "Pravidlo nenalezeno");
   checkRule(patch);
   const set: Partial<typeof t.recurringRules.$inferInsert> = {};
   if (patch.sourceId !== undefined) set.sourceId = patch.sourceId ? (await ownSource(userId, patch.sourceId)).id : null;
@@ -761,13 +805,15 @@ export async function updateRecurringRule(userId: string, id: string, patch: Par
 
 /** Deletes a rule; already generated transactions are kept. */
 export async function deleteRecurringRule(userId: string, id: string) {
+  needId(id, "Pravidlo nenalezeno");
   await db.delete(t.recurringRules).where(and(eq(t.recurringRules.id, id), eq(t.recurringRules.userId, userId)));
 }
 
 /**
  * Creates missing transactions for all active recurring rules up to today.
  * Idempotent: each month is claimed by advancing `lastGeneratedMonth` with a compare-and-set
- * before inserting, so concurrent calls never create duplicates.
+ * before inserting, so concurrent calls never create duplicates, and a month that already has a
+ * transaction of the rule is skipped (rewinding `startMonth` never duplicates).
  */
 export async function generateRecurring(userId: string): Promise<{ created: number }> {
   const today = isoDate();
@@ -798,6 +844,16 @@ export async function generateRecurring(userId: string): Promise<{ created: numb
         )
         .returning({ id: t.recurringRules.id });
       if (!claimed.length) break; // another request is generating this rule
+      // idempotent per (rule, month): a transaction may already exist, e.g. after startMonth was moved back
+      const [existing] = await db
+        .select({ id: tx.id })
+        .from(tx)
+        .where(and(eq(tx.userId, userId), eq(tx.recurringRuleId, rule.id), gte(tx.date, `${ym}-01`), lte(tx.date, monthEnd(ym))))
+        .limit(1);
+      if (existing) {
+        last = ym;
+        continue;
+      }
       try {
         const { rate, czk } = await toCzk(rule.amount, rule.currency, date);
         await db.insert(tx).values({
@@ -861,15 +917,28 @@ async function firstTxMonth(userId: string): Promise<string | null> {
   return r?.d ? ymOf(r.d) : null;
 }
 
-/** Average monthly net over the trailing 12 months incl. the current one (fewer if history is shorter). */
+/**
+ * Averaging window over complete months: [max(from, first), min(to, last month)]. While no month of the
+ * window is complete yet (history starts this month), it's the current month alone. Null = nothing to average.
+ */
+function completeMonthsWindow(fromYm: string, toYm: string, first: string | null, curYm: string): { from: string; to: string } | null {
+  if (!first) return null;
+  const lastComplete = addMonths(curYm, -1);
+  const end = toYm > lastComplete ? lastComplete : toYm;
+  const start = first > fromYm ? first : fromYm;
+  if (start <= end) return { from: start, to: end };
+  if (fromYm <= curYm && curYm <= toYm && first <= curYm) return { from: curYm, to: curYm };
+  return null;
+}
+
+/** Average monthly net over the trailing 12 complete months (fewer if history is shorter; current month alone if none). */
 export async function avgMonthlyNet12m(userId: string): Promise<number> {
-  const today = isoDate();
-  const curYm = ymOf(today);
+  const curYm = ymOf(isoDate());
   const first = await firstTxMonth(userId);
-  if (!first) return 0;
-  const fromYm = addMonths(curYm, -11) > first ? addMonths(curYm, -11) : first;
-  const s = await sumTransactions(userId, { from: `${fromYm}-01`, to: today });
-  return s.net / Math.max(1, monthsBetween(fromYm, curYm));
+  const w = completeMonthsWindow(addMonths(curYm, -12), curYm, first, curYm);
+  if (!w) return 0;
+  const s = await sumTransactions(userId, { from: `${w.from}-01`, to: monthEnd(w.to) });
+  return s.net / monthsBetween(w.from, w.to);
 }
 
 export async function getOverview(userId: string, opts: { year?: number | "all"; month?: string } = {}): Promise<Overview> {
@@ -890,7 +959,7 @@ export async function getOverview(userId: string, opts: { year?: number | "all";
   let avgFrom: string | null;
   let avgTo: string;
 
-  if (opts.month && /^\d{4}-\d{2}$/.test(opts.month)) {
+  if (isValidYm(opts.month)) {
     kind = "month";
     month = opts.month;
     year = Number(month.slice(0, 4));
@@ -899,8 +968,8 @@ export async function getOverview(userId: string, opts: { year?: number | "all";
     label = `${MONTHS_CS[Number(month.slice(5)) - 1]} ${year}`;
     seriesFrom = `${year}-01`;
     seriesTo = `${year}-12`;
-    avgFrom = `${year}-01`;
-    avgTo = year === curYear ? curYm : `${year}-12`;
+    avgFrom = year > curYear ? null : `${year}-01`; // future year: no average
+    avgTo = `${year}-12`;
   } else if (opts.year === "all") {
     kind = "all";
     label = "Celkem";
@@ -910,14 +979,14 @@ export async function getOverview(userId: string, opts: { year?: number | "all";
     avgTo = curYm;
   } else {
     kind = "year";
-    year = typeof opts.year === "number" ? opts.year : curYear;
+    year = typeof opts.year === "number" && isValidYear(opts.year) ? opts.year : curYear;
     from = `${year}-01-01`;
     to = `${year}-12-31`;
     label = String(year);
     seriesFrom = `${year}-01`;
     seriesTo = `${year}-12`;
-    avgFrom = `${year}-01`;
-    avgTo = year === curYear ? curYm : `${year}-12`;
+    avgFrom = year > curYear ? null : `${year}-01`; // future year: no average
+    avgTo = `${year}-12`;
   }
 
   const filter = { from: from ?? undefined, to: to ?? undefined };
@@ -948,18 +1017,17 @@ export async function getOverview(userId: string, opts: { year?: number | "all";
       .from(tx)
       .where(eq(tx.userId, userId)),
     avgMonthlyNet12m(userId),
-    listEvents(userId, undefined, filter),
+    listEvents(userId, undefined, { ...filter, clipToPeriod: true }),
   ]);
 
-  // averages over the elapsed months of the period
+  // averages over the complete months of the period (from the first transaction month if tracking began later)
   let monthsCounted = 0;
   let avgNet = 0;
   let avgIncome = 0;
-  if (avgFrom && avgFrom <= avgTo) {
-    // for a year, start counting from the first transaction month if tracking began mid-year
-    const start = kind !== "all" && first && first > avgFrom && first <= avgTo ? first : avgFrom;
-    monthsCounted = monthsBetween(start, avgTo);
-    const pts = monthly.filter((p) => p.month >= start && p.month <= avgTo);
+  const w = avgFrom ? completeMonthsWindow(avgFrom, avgTo, first, curYm) : null;
+  if (w) {
+    monthsCounted = monthsBetween(w.from, w.to);
+    const pts = monthly.filter((p) => p.month >= w.from && p.month <= w.to);
     const net = pts.reduce((s, p) => s + p.net, 0);
     const inc = pts.reduce((s, p) => s + p.income, 0);
     avgNet = monthsCounted ? net / monthsCounted : 0;
@@ -1031,7 +1099,7 @@ export async function getOverview(userId: string, opts: { year?: number | "all";
   };
 }
 
-/** Totals + monthly series for one source (all time, series = last 12 months or since the first transaction). */
+/** Totals + monthly series for one source (all time; series = last 12 months incl. the current one; average over complete months). */
 export async function getSourceStats(userId: string, sourceId: string) {
   const source = await getSource(userId, sourceId);
   const curYm = ymOf(isoDate());
@@ -1051,7 +1119,7 @@ export async function getSourceStats(userId: string, sourceId: string) {
       expense: sumKind("expense"),
     })
     .from(tx)
-    .where(and(eq(tx.userId, userId), eq(tx.sourceId, sourceId), gte(tx.date, `${fromYm}-01`)))
+    .where(and(eq(tx.userId, userId), eq(tx.sourceId, sourceId), gte(tx.date, `${addMonths(curYm, -12)}-01`)))
     .groupBy(sql`1`);
   const map = new Map(rows.map((r) => [r.month, r]));
   const monthly: MonthPoint[] = [];
@@ -1061,9 +1129,18 @@ export async function getSourceStats(userId: string, sourceId: string) {
     const expense = r?.expense ?? 0;
     monthly.push({ month: ym, label: monthLabel(ym, fromYm.slice(0, 4) !== curYm.slice(0, 4)), income, expense, net: income - expense });
   }
-  const months = first > curYm ? 1 : Math.min(12, monthsBetween(first < fromYm ? fromYm : first, curYm));
-  const last12 = monthly.reduce((s, p) => s + p.net, 0);
-  return { source, totals: all, monthly, avgMonthlyNet12m: last12 / months };
+  // average over the trailing 12 complete months (current month alone while none is complete)
+  const w = completeMonthsWindow(addMonths(curYm, -12), curYm, firstRow[0]?.d ? first : null, curYm);
+  let avg = 0;
+  if (w) {
+    let net = 0;
+    for (let ym = w.from; ym <= w.to; ym = addMonths(ym, 1)) {
+      const r = map.get(ym);
+      net += (r?.income ?? 0) - (r?.expense ?? 0);
+    }
+    avg = net / monthsBetween(w.from, w.to);
+  }
+  return { source, totals: all, monthly, avgMonthlyNet12m: avg };
 }
 
 /** Lightweight lists for pickers (sheet). */

@@ -14,6 +14,8 @@ type Controls = { stop: () => void };
 export function BarcodeScanner({ onCode, paused }: { onCode: (code: string) => void; paused?: boolean }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const controlsRef = useRef<Controls | null>(null);
+  /** Incremented on every start/stop/unmount; a pending start whose session no longer matches is cancelled. */
+  const sessionRef = useRef(0);
   const onCodeRef = useRef(onCode);
   const [state, setState] = useState<"idle" | "starting" | "running" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
@@ -23,6 +25,7 @@ export function BarcodeScanner({ onCode, paused }: { onCode: (code: string) => v
   }, [onCode]);
 
   const stop = useCallback(() => {
+    sessionRef.current++;
     controlsRef.current?.stop();
     controlsRef.current = null;
     const v = videoRef.current;
@@ -34,12 +37,15 @@ export function BarcodeScanner({ onCode, paused }: { onCode: (code: string) => v
   useEffect(() => stop, [stop]);
 
   // While a lookup is in progress, stop the camera; user can rescan afterwards.
+  // (also cancels a start that is still waiting for the permission prompt / camera).
   useEffect(() => {
-    if (paused && controlsRef.current) {
-      stop();
-      setState("idle");
-    }
+    if (paused) stop();
   }, [paused, stop]);
+  const [prevPaused, setPrevPaused] = useState(paused);
+  if (paused !== prevPaused) {
+    setPrevPaused(paused);
+    if (paused && (state === "running" || state === "starting")) setState("idle");
+  }
 
   const start = async () => {
     setError(null);
@@ -49,14 +55,17 @@ export function BarcodeScanner({ onCode, paused }: { onCode: (code: string) => v
       return;
     }
     setState("starting");
+    const session = ++sessionRef.current;
+    const cancelled = () => session !== sessionRef.current;
     try {
       const { BrowserMultiFormatReader } = await import("@zxing/browser");
+      if (cancelled()) return;
       const reader = new BrowserMultiFormatReader(undefined, { delayBetweenScanAttempts: 150, delayBetweenScanSuccess: 800 });
       const video = videoRef.current!;
       video.setAttribute("playsinline", "true");
       video.muted = true;
       let done = false;
-      controlsRef.current = await reader.decodeFromConstraints(
+      const controls = await reader.decodeFromConstraints(
         { audio: false, video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } } },
         video,
         (result, _err, controls) => {
@@ -71,8 +80,19 @@ export function BarcodeScanner({ onCode, paused }: { onCode: (code: string) => v
           onCodeRef.current(text);
         },
       );
+      if (cancelled()) {
+        // Closed / paused / unmounted while the permission prompt or camera start was pending:
+        // release the camera immediately (iOS Safari keeps it on otherwise).
+        controls.stop();
+        const stream = video.srcObject as MediaStream | null;
+        stream?.getTracks().forEach((tr) => tr.stop());
+        video.srcObject = null;
+        return;
+      }
+      controlsRef.current = controls;
       setState("running");
     } catch (e) {
+      if (cancelled()) return;
       stop();
       setState("error");
       const name = e instanceof Error ? e.name : "";

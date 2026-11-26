@@ -2,20 +2,20 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Check, ChevronLeft, CloudOff, Disc3, MoreHorizontal, Pencil, Plus, Repeat, Trash2, TrendingUp, X } from "lucide-react";
 import { Button, Field, Input, Textarea } from "@/components/ui";
 import { ConfirmButton, Sheet, Spinner } from "@/components/ui/client";
 import { cn, toNum } from "@/lib/utils";
-import { duration } from "@/lib/format";
+import { dateLabel, duration } from "@/lib/format";
 import { fmtKg, fmtVolume, progressionHint, type ProgressionHint } from "@/lib/workout/calc";
 import { equipmentLabel, muscleLabel } from "@/lib/workout/constants";
 import type { AlternativeDTO, ExerciseDTO, LastPerformance, SessionData, SessionExerciseInfo, SessionTarget, WorkoutFinishSummary, WorkoutSetDTO } from "@/lib/workout/service";
 import { discardWorkoutAction, finishWorkoutAction, getAlternativesAction, getExerciseLastAction, replaceProgramExerciseAction } from "../../actions";
 import { ExercisePicker } from "../../_components/exercise-picker";
 import { SwapSheet } from "../../_components/swap-sheet";
-import { applyPending, enqueue, flush, queueSnapshot, startQueue, subscribeQueue } from "./queue";
+import { applyPending, clearQueueError, enqueue, flush, queueErrorSnapshot, queueSnapshot, startQueue, subscribeQueue } from "./queue";
 import { primeAlerts, useRestTimer } from "./rest-timer";
 import { PlateCalculator } from "./plates";
 import { FinishSummary } from "./summary";
@@ -51,12 +51,23 @@ export function Session({ data, exercises: library }: { data: SessionData; exerc
   const router = useRouter();
   const workoutId = data.workout.id;
   const [initial] = useState(() => applyPending(workoutId, data.sets));
-  const [sets, setSets] = useState<WorkoutSetDTO[]>(initial.sets);
+  const [sets, setSetsState] = useState<WorkoutSetDTO[]>(initial.sets);
+  // Latest sets, updated synchronously with every change so async flows (prefill after a fetch)
+  // can merge into the current state instead of a stale snapshot.
+  const setsRef = useRef<WorkoutSetDTO[]>(initial.sets);
+  const setSets = (fn: (prev: WorkoutSetDTO[]) => WorkoutSetDTO[]) => {
+    const next = fn(setsRef.current);
+    setsRef.current = next;
+    setSetsState(next);
+    return next;
+  };
   const [name, setName] = useState(initial.name ?? data.workout.name);
   const [notes, setNotes] = useState<string | null>(initial.notes !== undefined ? initial.notes : data.workout.notes);
   const [exInfo, setExInfo] = useState<Record<string, SessionExerciseInfo>>(data.exercises);
   const [last, setLast] = useState<Record<string, LastPerformance | null>>(data.last);
-  const targets = data.targets;
+  // program targets by exerciseId; a swapped-in exercise inherits the slot's target (see doSwap)
+  const [targets, setTargets] = useState<Record<string, SessionTarget>>(data.targets);
+  const queueError = useSyncExternalStore(subscribeQueue, queueErrorSnapshot, () => null);
 
   const [picker, setPicker] = useState(false);
   const [swap, setSwap] = useState<{ group: Group; alts: AlternativeDTO[] | null; inProgram: boolean } | null>(null);
@@ -73,6 +84,8 @@ export function Session({ data, exercises: library }: { data: SessionData; exerc
   const [pending, offline, syncing] = queue.split("|").map(Number);
   const now = useNow(1000);
   const elapsed = Math.max(0, Math.floor((now - new Date(data.workout.startedAt).getTime()) / 1000));
+  // a workout logged for an earlier day: show its date instead of a running clock
+  const backdated = elapsed > 12 * 3600;
 
   useEffect(() => startQueue(), []);
 
@@ -117,7 +130,7 @@ export function Session({ data, exercises: library }: { data: SessionData; exerc
   );
 
   const updateSet = (id: string, patch: Partial<WorkoutSetDTO>) => {
-    const cur = sets.find((s) => s.id === id);
+    const cur = setsRef.current.find((s) => s.id === id);
     if (!cur) return;
     setSets((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
     persist({ ...cur, ...patch });
@@ -141,7 +154,7 @@ export function Session({ data, exercises: library }: { data: SessionData; exerc
     if (completing) {
       primeAlerts();
       if (!s.isWarmup) {
-        const target = targets[s.exerciseOrder];
+        const target = targets[s.exerciseId];
         const seconds = target?.restSeconds ?? data.defaultRestSeconds;
         timer.startRest(seconds, exInfo[s.exerciseId]?.name ?? "");
       }
@@ -178,7 +191,8 @@ export function Session({ data, exercises: library }: { data: SessionData; exerc
 
   const addExercise = async (ex: ExerciseDTO) => {
     setExInfo((m) => ({ ...m, [ex.id]: { id: ex.id, name: ex.name, primaryMuscle: ex.primaryMuscle, equipment: ex.equipment, pattern: ex.pattern } }));
-    const order = sets.length ? Math.max(...sets.map((s) => s.exerciseOrder)) + 1 : 0;
+    const cur = setsRef.current;
+    const order = cur.length ? Math.max(...cur.map((s) => s.exerciseOrder)) + 1 : 0;
     const created: WorkoutSetDTO[] = [1, 2, 3].map((n) => ({
       id: uid(),
       exerciseId: ex.id,
@@ -192,15 +206,24 @@ export function Session({ data, exercises: library }: { data: SessionData; exerc
       notes: null,
     }));
     setSets((p) => [...p, ...created]);
+    created.forEach(persist);
+    setTimeout(() => document.getElementById(`ex-${order}:${ex.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
     const lp = await fetchLast(ex.id);
     const work = lp?.sets.filter((x) => !x.isWarmup) ?? [];
-    const prefilled = created.map((s, i) => {
+    if (!work.length) return;
+    // prefill only sets the user hasn't touched (or deleted) while we were waiting
+    const now = new Map(setsRef.current.map((s) => [s.id, s]));
+    const prefilled: WorkoutSetDTO[] = [];
+    created.forEach((orig, i) => {
+      const c = now.get(orig.id);
+      if (!c || c.completed || c.weightKg !== orig.weightKg || c.reps !== orig.reps || c.exerciseId !== orig.exerciseId) return;
       const ref = work[i] ?? work[work.length - 1];
-      return ref ? { ...s, weightKg: ref.weightKg, reps: ref.reps } : s;
+      prefilled.push({ ...c, weightKg: ref.weightKg, reps: ref.reps });
     });
-    setSets((p) => p.map((s) => prefilled.find((x) => x.id === s.id && !s.completed && s.weightKg === 0) ?? s));
+    if (!prefilled.length) return;
+    const byId = new Map(prefilled.map((x) => [x.id, x]));
+    setSets((p) => p.map((s) => byId.get(s.id) ?? s));
     prefilled.forEach(persist);
-    setTimeout(() => document.getElementById(`ex-${order}:${ex.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
   };
 
   const openSwap = (g: Group) => {
@@ -216,20 +239,35 @@ export function Session({ data, exercises: library }: { data: SessionData; exerc
     const { group: g, inProgram } = swap;
     setSwap(null);
     setExInfo((m) => ({ ...m, [ex.id]: { id: ex.id, name: ex.name, primaryMuscle: ex.primaryMuscle, equipment: ex.equipment, pattern: ex.pattern } }));
-    const moving = g.sets.filter((s) => !s.completed);
-    const ids = new Set(moving.map((s) => s.id));
-    const target = targets[g.order];
-    setSets((p) => p.map((s) => (ids.has(s.id) ? { ...s, exerciseId: ex.id, weightKg: 0, reps: target?.repMin ?? s.reps } : s)));
+    const target = targets[g.exerciseId];
+    if (target) setTargets((tg) => (tg[ex.id] ? tg : { ...tg, [ex.id]: target }));
+    const ids = new Set(g.sets.filter((s) => !s.completed).map((s) => s.id));
+    const swapped = setSets((p) => p.map((s) => (ids.has(s.id) && !s.completed ? { ...s, exerciseId: ex.id, weightKg: 0, reps: target?.repMin ?? s.reps } : s))).filter((s) =>
+      ids.has(s.id),
+    );
+    swapped.forEach(persist);
     if (inProgram && target) {
-      replaceProgramExerciseAction(target.programExerciseId, ex.id).catch(() => {});
+      replaceProgramExerciseAction(target.programExerciseId, ex.id).then(
+        (r) => {
+          if (r.ok) setTargets((tg) => ({ ...tg, [ex.id]: { ...target, exerciseId: ex.id } }));
+        },
+        () => {},
+      );
     }
     const lp = await fetchLast(ex.id);
     const work = lp?.sets.filter((x) => !x.isWarmup) ?? [];
-    const updated = moving.map((s, i) => {
+    if (!work.length) return;
+    const now = new Map(setsRef.current.map((s) => [s.id, s]));
+    const updated: WorkoutSetDTO[] = [];
+    swapped.forEach((orig, i) => {
+      const c = now.get(orig.id);
+      if (!c || c.completed || c.exerciseId !== ex.id || c.weightKg !== orig.weightKg || c.reps !== orig.reps) return;
       const ref = work[i] ?? work[work.length - 1];
-      return { ...s, exerciseId: ex.id, weightKg: ref?.weightKg ?? 0, reps: ref?.reps ?? target?.repMin ?? s.reps };
+      updated.push({ ...c, weightKg: ref.weightKg, reps: ref.reps });
     });
-    setSets((p) => p.map((s) => updated.find((u) => u.id === s.id) ?? s));
+    if (!updated.length) return;
+    const byId = new Map(updated.map((u) => [u.id, u]));
+    setSets((p) => p.map((s) => byId.get(s.id) ?? s));
     updated.forEach(persist);
   };
 
@@ -284,7 +322,7 @@ export function Session({ data, exercises: library }: { data: SessionData; exerc
         <div className="min-w-0 flex-1">
           <div className="truncate font-semibold leading-tight">{name}</div>
           <div className="num flex items-center gap-2 text-xs text-muted">
-            <span>{duration(elapsed)}</span>
+            <span>{backdated ? dateLabel(data.workout.startedAt, { day: "numeric", month: "numeric", year: "numeric" }) : duration(elapsed)}</span>
             <span>·</span>
             <span>{done.length} sérií</span>
             <span>·</span>
@@ -305,6 +343,18 @@ export function Session({ data, exercises: library }: { data: SessionData; exerc
         </Button>
       </div>
 
+      {queueError && (
+        <div role="alert" className="mb-4 flex items-start gap-3 rounded-xl border border-line-strong bg-card px-4 py-3 text-sm">
+          <div className="min-w-0 flex-1">
+            <div className="font-medium text-neg">Změna se neuložila</div>
+            <div className="text-fg-soft">{queueError.message.replace(/\.?$/, ".")} Zkontroluj {queueError.kind === "set" ? "sérii" : "údaje"} a zkus to znovu.</div>
+          </div>
+          <button onClick={clearQueueError} className="-m-1 rounded-full p-1 text-muted hover:text-fg" aria-label="Zavřít">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
       <div className="space-y-4">
         <AnimatePresence initial={false}>
           {groups.map((g) => (
@@ -312,7 +362,7 @@ export function Session({ data, exercises: library }: { data: SessionData; exerc
               <ExerciseCard
                 group={g}
                 info={exInfo[g.exerciseId]}
-                target={targets[g.order]}
+                target={targets[g.exerciseId]}
                 last={last[g.exerciseId] ?? null}
                 editing={editing === g.key}
                 onToggleEdit={() => setEditing((e) => (e === g.key ? null : g.key))}
@@ -386,7 +436,7 @@ export function Session({ data, exercises: library }: { data: SessionData; exerc
         onClose={() => setSwap(null)}
         onPick={doSwap}
       >
-        {swap && targets[swap.group.order] && (
+        {swap && targets[swap.group.exerciseId] && (
           <label className="mb-3 flex items-center gap-2 rounded-xl bg-card px-3 py-2.5 text-sm">
             <input
               type="checkbox"

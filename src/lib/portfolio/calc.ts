@@ -29,6 +29,12 @@ export type PositionStats = {
   withdrawn: number;
   fees: number;
   lastValuationDate: string | null;
+  /** realized P/L per transaction date (asset currency) – for converting at historical FX */
+  realizedByDate: Record<string, number>;
+  /** net dividends per transaction date (asset currency) */
+  dividendsByDate: Record<string, number>;
+  /** profit withdrawals per date (asset currency); counted as realized only for manual assets */
+  withdrawnByDate: Record<string, number>;
 };
 
 export type Lot = {
@@ -56,6 +62,26 @@ export function computePosition(txs: TxLike[], opts: { manual: boolean; lastPric
   return opts.manual ? computeManual(txs) : computeMarket(txs, opts.lastPrice);
 }
 
+const bump = (m: Record<string, number>, date: string, v: number) => {
+  m[date] = (m[date] ?? 0) + v;
+};
+
+/**
+ * First sell that exceeds the units held at that point (chronological order), or null.
+ * Used to reject overselling before a sell is stored.
+ */
+export function findOversell<T extends TxLike>(txs: T[]): { tx: T; date: string; quantity: number; held: number } | null {
+  let qty = 0;
+  for (const tx of sortTx(txs)) {
+    if (tx.type === "buy") qty += tx.quantity;
+    else if (tx.type === "sell") {
+      if (tx.quantity > qty + 1e-9) return { tx, date: tx.date, quantity: tx.quantity, held: Math.max(0, qty) };
+      qty = Math.max(0, qty - tx.quantity);
+    }
+  }
+  return null;
+}
+
 function computeMarket(txs: TxLike[], lastPrice: number | null): PositionStats {
   let qty = 0;
   let cost = 0;
@@ -63,6 +89,9 @@ function computeMarket(txs: TxLike[], lastPrice: number | null): PositionStats {
   let dividends = 0;
   let withdrawn = 0;
   let fees = 0;
+  const realizedByDate: Record<string, number> = {};
+  const dividendsByDate: Record<string, number> = {};
+  const withdrawnByDate: Record<string, number> = {};
   for (const tx of sortTx(txs)) {
     switch (tx.type) {
       case "buy":
@@ -73,7 +102,10 @@ function computeMarket(txs: TxLike[], lastPrice: number | null): PositionStats {
       case "sell": {
         const sold = Math.min(tx.quantity, qty);
         const avg = qty > 0 ? cost / qty : 0;
-        realized += tx.quantity * tx.price - tx.fee - avg * sold;
+        // proceeds only for units actually held (legacy oversold rows are clamped)
+        const r = sold * tx.price - tx.fee - avg * sold;
+        realized += r;
+        bump(realizedByDate, tx.date, r);
         cost -= avg * sold;
         qty -= sold;
         fees += tx.fee;
@@ -85,14 +117,18 @@ function computeMarket(txs: TxLike[], lastPrice: number | null): PositionStats {
       }
       case "dividend":
         dividends += tx.amount - tx.fee;
+        bump(dividendsByDate, tx.date, tx.amount - tx.fee);
         break;
       case "withdrawal":
+        // market assets realize profit via sells; a withdrawal is informational only (not added to P/L)
         withdrawn += tx.amount;
+        bump(withdrawnByDate, tx.date, tx.amount);
         break;
       case "fee": {
         const f = tx.amount || tx.fee;
         fees += f;
         realized -= f;
+        bump(realizedByDate, tx.date, -f);
         break;
       }
       case "valuation":
@@ -113,6 +149,9 @@ function computeMarket(txs: TxLike[], lastPrice: number | null): PositionStats {
     withdrawn,
     fees,
     lastValuationDate: null,
+    realizedByDate,
+    dividendsByDate,
+    withdrawnByDate,
   };
 }
 
@@ -128,6 +167,9 @@ function computeManual(txs: TxLike[]): PositionStats {
   let withdrawn = 0;
   let fees = 0;
   let lastValuationDate: string | null = null;
+  const realizedByDate: Record<string, number> = {};
+  const dividendsByDate: Record<string, number> = {};
+  const withdrawnByDate: Record<string, number> = {};
   for (const tx of sortTx(txs)) {
     switch (tx.type) {
       case "buy": {
@@ -141,9 +183,14 @@ function computeManual(txs: TxLike[]): PositionStats {
         const amt = gross(tx);
         if (value > 0) {
           const frac = Math.min(1, amt / value);
-          realized += amt - tx.fee - invested * frac;
+          const r = amt - tx.fee - invested * frac;
+          realized += r;
+          bump(realizedByDate, tx.date, r);
           invested -= invested * frac;
-        } else realized += amt - tx.fee;
+        } else {
+          realized += amt - tx.fee;
+          bump(realizedByDate, tx.date, amt - tx.fee);
+        }
         value = Math.max(0, value - amt);
         fees += tx.fee;
         break;
@@ -154,15 +201,18 @@ function computeManual(txs: TxLike[]): PositionStats {
         break;
       case "withdrawal":
         withdrawn += tx.amount;
+        bump(withdrawnByDate, tx.date, tx.amount);
         value = Math.max(0, value - tx.amount);
         break;
       case "dividend":
         dividends += tx.amount - tx.fee;
+        bump(dividendsByDate, tx.date, tx.amount - tx.fee);
         break;
       case "fee": {
         const f = tx.amount || tx.fee;
         fees += f;
         realized -= f;
+        bump(realizedByDate, tx.date, -f);
         break;
       }
     }
@@ -180,6 +230,9 @@ function computeManual(txs: TxLike[]): PositionStats {
     withdrawn,
     fees,
     lastValuationDate,
+    realizedByDate,
+    dividendsByDate,
+    withdrawnByDate,
   };
 }
 

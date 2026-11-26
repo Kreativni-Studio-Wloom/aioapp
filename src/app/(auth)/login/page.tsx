@@ -7,6 +7,7 @@ export const metadata = { title: "Přihlášení" };
 const NOTICES: Record<string, string> = {
   link: "Odkaz už neplatí nebo byl otevřený v jiném prohlížeči. Pokud šlo o potvrzení e-mailu, účet je nejspíš potvrzený – zkus se přihlásit.",
   confirmed: "E-mail je potvrzený, můžeš se přihlásit.",
+  deleted: "Účet i všechna data jsme smazali. Díky za vyzkoušení AIO.",
 };
 
 export default async function LoginPage({ searchParams }: PageProps<"/login">) {

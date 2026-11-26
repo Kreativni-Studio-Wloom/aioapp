@@ -5,7 +5,7 @@ import { requireUser } from "@/lib/auth";
 import { addDays, isoDate, money } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { TxKind } from "@/lib/income/constants";
-import { addMonths, listSources, listTransactions, monthEnd, sumTransactions } from "@/lib/income/service";
+import { addMonths, isValidIsoDate, listSources, listTransactions, monthEnd, sumTransactions } from "@/lib/income/service";
 import { IncomeHeader, SignedMoney } from "../_components/bits";
 import { TxList } from "../_components/tx-list";
 
@@ -13,7 +13,7 @@ type SP = { from?: string; to?: string; source?: string; kind?: string; category
 type Props = { searchParams: Promise<SP> };
 
 const LIMIT = 300;
-const validDate = (s?: string) => (s && /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : undefined);
+const validDate = (s?: string) => (isValidIsoDate(s) ? s : undefined);
 
 export default async function TransactionsPage({ searchParams }: Props) {
   const user = await requireUser();

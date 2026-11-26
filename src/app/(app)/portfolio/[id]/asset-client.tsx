@@ -12,7 +12,8 @@ import { INCOME_CATEGORY, MANUAL_TX_LABEL, TX_LABEL, type AssetTxType } from "@/
 import type { AssetTx } from "@/lib/portfolio/service";
 import { addAssetTxAction, deleteAssetAction, deleteAssetTxAction, updateAssetAction } from "../actions";
 
-const MARKET_TYPES: AssetTxType[] = ["buy", "sell", "dividend", "fee", "withdrawal"];
+// no "withdrawal" for market assets: profit is realized by selling (a withdrawal would double-count it)
+const MARKET_TYPES: AssetTxType[] = ["buy", "sell", "dividend", "fee"];
 const MANUAL_TYPES: AssetTxType[] = ["valuation", "buy", "sell", "withdrawal", "dividend", "fee"];
 
 /* ── Add transaction ── */
@@ -74,7 +75,7 @@ function TxForm({ assetId, manual, currency, lastPrice, onDone }: { assetId: str
 
   return (
     <form action={submit} className="space-y-4">
-      <div className="grid grid-cols-3 gap-1.5">
+      <div className={cn("grid gap-1.5", types.length === 4 ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-3")}>
         {types.map((t) => (
           <button
             key={t}

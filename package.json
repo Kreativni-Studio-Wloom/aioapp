@@ -11,7 +11,8 @@
     "db:seed": "tsx scripts/seed-exercises.ts",
     "db:studio": "drizzle-kit studio",
     "typecheck": "tsc --noEmit",
-    "db:setup:prod": "bash scripts/setup-prod-db.sh"
+    "db:setup:prod": "bash scripts/setup-prod-db.sh",
+    "legal:build": "node scripts/build-legal.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.14.0",

@@ -226,7 +226,7 @@ export function ProfileForm({
             <>
               <div className="num mt-3 text-sm">
                 <Row>
-                  <span className="text-muted">Průměrný příjem ({adaptive.foodDays} dní)</span>
+                  <span className="text-muted">Průměrný příjem ({adaptive.foodDays} kompletních dní)</span>
                   <span>{num(adaptive.avgIntake)} kcal</span>
                 </Row>
                 <Row>
@@ -245,8 +245,8 @@ export function ProfileForm({
             </>
           ) : (
             <p className="num mt-3 text-sm text-muted">
-              Potřebujeme alespoň {adaptive.requiredDays} dní se záznamem jídla a {adaptive.requiredDays} vážení. Zatím: {adaptive.foodDays} dní jídla, {adaptive.weightDays}{" "}
-              vážení.
+              Potřebujeme alespoň {adaptive.requiredDays} kompletně zapsaných dní (≥ 2 jídla nebo ≥ 50 % cíle) a {adaptive.requiredDays} vážení. Zatím:{" "}
+              {adaptive.foodDays} dní jídla, {adaptive.weightDays} vážení.
             </p>
           )}
           {saved.overridden && (

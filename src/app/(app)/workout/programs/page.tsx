@@ -4,6 +4,7 @@ import { SubmitButton } from "@/components/ui/client";
 import { requireUser } from "@/lib/auth";
 import { listPrograms, listProgramTemplates } from "@/lib/workout/service";
 import { cloneTemplateAction, createProgramAction } from "../actions";
+import { ActionForm } from "../_components/action-form";
 
 export default async function ProgramsPage() {
   const user = await requireUser();
@@ -36,10 +37,10 @@ export default async function ProgramsPage() {
 
       <SectionTitle>Nový program</SectionTitle>
       <Card>
-        <form action={createProgramAction} className="flex gap-2">
+        <ActionForm action={createProgramAction} className="flex gap-2">
           <Input name="name" placeholder="Název programu" required maxLength={80} className="flex-1" />
           <SubmitButton>Vytvořit</SubmitButton>
-        </form>
+        </ActionForm>
       </Card>
 
       <SectionTitle>Šablony</SectionTitle>
@@ -53,12 +54,12 @@ export default async function ProgramsPage() {
                 <Badge key={d.name}>{d.name}</Badge>
               ))}
             </div>
-            <form action={cloneTemplateAction} className="mt-4">
+            <ActionForm action={cloneTemplateAction} wrapClassName="mt-4">
               <input type="hidden" name="key" value={tpl.key} />
               <SubmitButton variant="secondary" className="w-full" pendingText="Kopíruji…">
                 <Copy className="h-4 w-4" /> Použít šablonu
               </SubmitButton>
-            </form>
+            </ActionForm>
           </Card>
         ))}
       </div>

@@ -5,7 +5,7 @@ import { AnimatedNumber } from "@/components/ui/client";
 import { requireUser } from "@/lib/auth";
 import { isoDate, money, pct } from "@/lib/format";
 import { SOURCE_TYPE_LABEL } from "@/lib/income/constants";
-import { generateRecurring, getOverview } from "@/lib/income/service";
+import { generateRecurring, getOverview, isValidYear, isValidYm } from "@/lib/income/service";
 import { EventRow, IncomeHeader, ShareRow, SignedMoney } from "./_components/bits";
 import { ChartLegend, MonthlyChart } from "./_components/monthly-chart";
 import { PeriodSwitch } from "./_components/nav";
@@ -19,8 +19,8 @@ export default async function IncomePage({ searchParams }: Props) {
   const sp = await searchParams;
   await generateRecurring(user.id);
 
-  const month = sp.m && /^\d{4}-\d{2}$/.test(sp.m) ? sp.m : undefined;
-  const year = sp.y === "all" ? "all" : sp.y && /^\d{4}$/.test(sp.y) ? Number(sp.y) : undefined;
+  const month = isValidYm(sp.m) ? sp.m : undefined;
+  const year = sp.y === "all" ? "all" : sp.y && /^\d{4}$/.test(sp.y) && isValidYear(Number(sp.y)) ? Number(sp.y) : undefined;
   // default: current month
   const ov = await getOverview(user.id, month || year ? { month, year } : { month: isoDate().slice(0, 7) });
   const { totals, period, comparison } = ov;
@@ -83,12 +83,16 @@ export default async function IncomePage({ searchParams }: Props) {
             <Card>
               <Stat
                 label={period.kind === "all" ? "Průměr / měsíc" : `Průměr / měsíc ${period.year}`}
-                value={money(ov.avgMonthlyNet)}
-                sub={`čistého · ${ov.monthsCounted} ${ov.monthsCounted === 1 ? "měsíc" : ov.monthsCounted < 5 ? "měsíce" : "měsíců"}`}
+                value={ov.monthsCounted ? money(ov.avgMonthlyNet) : "–"}
+                sub={
+                  ov.monthsCounted
+                    ? `čistého · ${ov.monthsCounted} ${ov.monthsCounted === 1 ? "měsíc" : ov.monthsCounted < 5 ? "měsíce" : "měsíců"}`
+                    : "zatím žádný uzavřený měsíc"
+                }
               />
             </Card>
             <Card>
-              <Stat label="Průměr / měsíc (12 m)" value={money(ov.avgMonthlyNet12m)} sub="čistého, posledních 12 měsíců" />
+              <Stat label="Průměr / měsíc (12 m)" value={money(ov.avgMonthlyNet12m)} sub="čistého, posledních 12 uzavřených měsíců" />
             </Card>
             <Card className="col-span-2 md:col-span-1">
               {comparison ? (

@@ -6,7 +6,8 @@ import { Card, PageHeader, SectionTitle, Row, LinkButton } from "@/components/ui
 import { dateLabel } from "@/lib/format";
 import { aiEnabled } from "@/lib/ai";
 import { logout } from "../../(auth)/actions";
-import { AccountForm, PasswordForm, ThemeSwitch, ApiKeys, PushToggle, SignOutOthers, InstallHelp } from "./client";
+import { AccountForm, PasswordForm, ThemeSwitch, ApiKeys, PushToggle, SignOutOthers, InstallHelp, DeleteAccount } from "./client";
+import { LegalLinks } from "@/components/legal-links";
 
 export const metadata = { title: "Nastavení" };
 
@@ -99,6 +100,13 @@ export default async function SettingsPage() {
           </div>
         </div>
       </Card>
+      <SectionTitle>Smazání účtu</SectionTitle>
+      <Card className="flex flex-wrap items-center justify-between gap-3">
+        <div className="text-sm text-muted">Trvale smaže účet a všechna data. Zároveň tím odvoláš souhlas se zpracováním údajů o zdraví.</div>
+        <DeleteAccount email={user.email} />
+      </Card>
+
+      <LegalLinks className="mt-10" />
       <div className="h-8" />
     </div>
   );

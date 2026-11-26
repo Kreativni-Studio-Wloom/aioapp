@@ -22,6 +22,7 @@ import {
   removePushSubscription,
   sendTestPush,
   signOutOtherDevices,
+  deleteAccount,
 } from "./actions";
 
 function Saved({ state }: { state: ActionResult | undefined }) {
@@ -269,5 +270,36 @@ export function InstallHelp() {
         <div className="mt-1 text-muted">Chrome / Edge → ikona Instalovat v adresním řádku</div>
       </div>
     </div>
+  );
+}
+
+export function DeleteAccount({ email }: { email: string }) {
+  const [open, setOpen] = useState(false);
+  const [state, action, pending] = useActionState<ActionResult | undefined, FormData>(deleteAccount, undefined);
+  if (!open)
+    return (
+      <Button size="sm" variant="secondary" className="text-neg" onClick={() => setOpen(true)}>
+        Smazat účet
+      </Button>
+    );
+  return (
+    <form action={action} className="w-full space-y-3">
+      <p className="text-sm text-fg-soft">
+        Smažeme účet a <strong>všechna data</strong> – tréninky, výživu, příjmy, portfolio, cíle, konverzace s AI i připojené integrace. Nejde to vrátit.
+        Pokud si chceš data nechat, stáhni si nejdřív export výše.
+      </p>
+      <Field label={`Pro potvrzení napiš svůj e-mail (${email})`}>
+        <Input name="confirm" type="email" autoComplete="off" required />
+      </Field>
+      {state && !state.ok && <p className="text-sm text-neg">{state.error}</p>}
+      <div className="flex gap-2">
+        <Button type="submit" size="sm" variant="danger" disabled={pending}>
+          {pending ? "Mažu…" : "Trvale smazat účet"}
+        </Button>
+        <Button type="button" size="sm" variant="secondary" onClick={() => setOpen(false)}>
+          Zrušit
+        </Button>
+      </div>
+    </form>
   );
 }

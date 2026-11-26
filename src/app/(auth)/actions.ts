@@ -9,6 +9,10 @@ import { ensureAppUser, registrationOpen } from "@/lib/auth";
 import { appOrigin } from "@/lib/env";
 import { supabaseConfigured, supabaseServer } from "@/lib/supabase";
 
+// bump together with a new version in scripts/build-legal.mjs
+const TERMS_VERSION = "1.0";
+const PRIVACY_VERSION = "1.0";
+
 export type AuthState = { error?: string; info?: string } | undefined;
 
 const email = z.string().trim().toLowerCase().email("Neplatný e-mail");
@@ -70,6 +74,10 @@ export async function register(_: AuthState, form: FormData): Promise<AuthState>
     .safeParse({ email: form.get("email"), password: form.get("password"), name: form.get("name") || undefined });
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Neplatné údaje." };
   if (form.get("password") !== form.get("password2")) return { error: "Hesla se neshodují." };
+  if (form.get("terms") !== "on") return { error: "Pro registraci je potřeba souhlasit s podmínkami užívání." };
+  if (form.get("health") !== "on") return { error: "Bez souhlasu se zpracováním údajů o zdraví nemůžeme trénink a výživu vést." };
+  const consentAt = new Date().toISOString();
+  const consents = { terms: { version: TERMS_VERSION, at: consentAt }, privacy: { version: PRIVACY_VERSION }, health: { at: consentAt } };
 
   const supabase = await supabaseServer();
   const { data, error } = await supabase.auth.signUp({
@@ -77,7 +85,7 @@ export async function register(_: AuthState, form: FormData): Promise<AuthState>
     password: parsed.data.password,
     options: {
       emailRedirectTo: `${await origin()}/auth/callback`,
-      data: parsed.data.name ? { name: parsed.data.name } : undefined,
+      data: { ...(parsed.data.name ? { name: parsed.data.name } : {}), consents },
     },
   });
   if (error) return { error: authError(error.message, error.code) };
