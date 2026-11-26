@@ -41,3 +41,33 @@ export function describeDbUrl(url: string | undefined) {
     return { set: true, parseable: false };
   }
 }
+
+function firstEnv(...names: string[]) {
+  for (const n of names) {
+    const v = clean(n, process.env[n]);
+    if (v) return v;
+  }
+  return undefined;
+}
+
+/**
+ * Supabase project URL. Explicit SUPABASE_URL wins; otherwise it is derived from a Supabase pooler
+ * DATABASE_URL (user `postgres.<project-ref>`), so production needs only the publishable key.
+ */
+export function supabaseUrl() {
+  const explicit = firstEnv("SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_URL");
+  if (explicit) return explicit.replace(/\/+$/, "");
+  const d = describeDbUrl(databaseUrl());
+  const ref = "user" in d ? d.user?.match(/^postgres\.([a-z0-9]+)$/)?.[1] : undefined;
+  return ref ? `https://${ref}.supabase.co` : undefined;
+}
+
+/** Publishable (sb_publishable_…) or legacy anon key – both are safe to expose. */
+export function supabaseKey() {
+  return firstEnv(
+    "SUPABASE_PUBLISHABLE_KEY",
+    "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
+    "SUPABASE_ANON_KEY",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+  );
+}

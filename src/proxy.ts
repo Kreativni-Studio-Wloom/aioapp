@@ -1,18 +1,44 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { createServerClient } from "@supabase/ssr";
+import { supabaseKey, supabaseUrl } from "@/lib/env";
 
-const PUBLIC = ["/login", "/register", "/manifest.webmanifest", "/sw.js", "/offline", "/.well-known"];
+const PUBLIC = ["/login", "/register", "/forgot-password", "/auth", "/manifest.webmanifest", "/sw.js", "/offline", "/.well-known"];
 
-/** Optimistic check only: real session validation happens in requireUser(). */
-export function proxy(req: NextRequest) {
+/**
+ * Refreshes the Supabase session cookies on every page request and redirects signed-out visitors
+ * to /login. The app user itself is resolved in requireUser().
+ */
+export async function proxy(req: NextRequest) {
   const { pathname, search } = req.nextUrl;
-  if (PUBLIC.some((p) => pathname === p || pathname.startsWith(p + "/"))) return NextResponse.next();
-  if (!req.cookies.has("aio_session")) {
-    const url = req.nextUrl.clone();
-    url.pathname = "/login";
-    url.search = pathname === "/" ? "" : `?next=${encodeURIComponent(pathname + search)}`;
-    return NextResponse.redirect(url);
+  let res = NextResponse.next({ request: req });
+  let signedIn = false;
+
+  const url = supabaseUrl();
+  const key = supabaseKey();
+  if (url && key) {
+    const supabase = createServerClient(url, key, {
+      cookies: {
+        getAll: () => req.cookies.getAll(),
+        setAll(list, headers) {
+          for (const { name, value } of list) req.cookies.set(name, value);
+          res = NextResponse.next({ request: req });
+          for (const { name, value, options } of list) res.cookies.set(name, value, options);
+          for (const [k, v] of Object.entries(headers ?? {})) res.headers.set(k, v);
+        },
+      },
+    });
+    const { data } = await supabase.auth.getClaims();
+    signedIn = !!data?.claims;
   }
-  return NextResponse.next();
+
+  if (signedIn || PUBLIC.some((p) => pathname === p || pathname.startsWith(p + "/"))) return res;
+
+  const login = req.nextUrl.clone();
+  login.pathname = "/login";
+  login.search = pathname === "/" ? "" : `?next=${encodeURIComponent(pathname + search)}`;
+  const redirect = NextResponse.redirect(login);
+  for (const c of res.cookies.getAll()) redirect.cookies.set(c);
+  return redirect;
 }
 
 export const config = {

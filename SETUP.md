@@ -29,7 +29,20 @@ npm run dev            # http://localhost:3000
    ```
    Vytvoří všechny tabulky a nahraje knihovnu cviků (pro migrace si sám přepne na session pooler, port 5432).
 
-> Ze Supabase používáme jen Postgres. Přihlášení je vlastní (hesla scrypt + session v DB), Supabase Auth ani Storage nejsou potřeba. Soubor `.env.production.local` je v `.gitignore`, na GitHub se nedostane.
+> Soubor `.env.production.local` je v `.gitignore`, na GitHub se nedostane.
+
+### Přihlašování (Supabase Auth)
+
+Registraci, přihlášení, potvrzení e-mailu i reset hesla řeší Supabase Auth. Data aplikace jsou dál v našich tabulkách, účet se s nimi spáruje podle e-mailu.
+
+1. Supabase → **Project Settings → API Keys** → zkopíruj **Publishable key** (`sb_publishable_…`, případně legacy `anon`) → na Vercel jako `SUPABASE_PUBLISHABLE_KEY`.
+2. Supabase → **Authentication → URL Configuration**:
+   - **Site URL**: `https://aioapp-32dm.vercel.app` (po napojení domény `https://aioapp.eu`)
+   - **Redirect URLs**: `https://aioapp-32dm.vercel.app/**`, `https://aioapp.eu/**`, `http://localhost:3000/**`
+3. Volitelně **Authentication → Sign In / Providers → Email**: „Confirm email“ vypnout, pokud nechceš potvrzovat e-mail (pak jsi po registraci rovnou přihlášený).
+4. Až máš svůj účet: **Authentication → Sign In / Providers → Allow new users to sign up** vypnout (a/nebo `ALLOW_REGISTRATION=false` na Vercelu).
+
+> Vestavěný e-mail Supabase posílá jen pár e-mailů za hodinu. Pro víc stačí nastavit vlastní SMTP (Authentication → Emails → SMTP).
 
 ---
 
@@ -41,6 +54,7 @@ Repozitář na GitHubu už existuje. Vercel → **Add New → Project** → impo
 |---|---|
 | `DATABASE_URL` | stejný řetězec jako v `.env.production.local` (port 6543) |
 | `APP_URL` | `https://aioapp.eu` (dokud nemáš doménu, adresa z Vercelu, např. `https://aioapp.vercel.app`) |
+| `SUPABASE_PUBLISHABLE_KEY` | Publishable key ze Supabase (viz výše). `SUPABASE_URL` není potřeba – odvodí se z `DATABASE_URL`. |
 | `ALLOW_REGISTRATION` | `true`, po vytvoření svého účtu přepni na `false` a dej Redeploy |
 | `CRON_SECRET` | náhodný řetězec (`openssl rand -hex 24`) |
 | `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | z `.env.local` (nebo nové: `npx web-push generate-vapid-keys`) |

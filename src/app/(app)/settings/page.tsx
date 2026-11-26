@@ -18,7 +18,6 @@ export default async function SettingsPage() {
     .from(t.apiKeys)
     .where(eq(t.apiKeys.userId, user.id))
     .orderBy(desc(t.apiKeys.createdAt));
-  const sessions = await db.select({ id: t.sessions.id }).from(t.sessions).where(eq(t.sessions.userId, user.id));
   const theme = (await cookies()).get("theme")?.value === "light" ? "light" : "dark";
 
   return (
@@ -89,9 +88,9 @@ export default async function SettingsPage() {
       <Card className="space-y-5">
         <PasswordForm />
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-5">
-          <div className="text-sm text-muted">Aktivní přihlášení: {sessions.length}</div>
+          <div className="text-sm text-muted">Přihlášení spravuje Supabase Auth</div>
           <div className="flex gap-2">
-            {sessions.length > 1 && <SignOutOthers />}
+            <SignOutOthers />
             <form action={logout}>
               <button type="submit" className="inline-flex h-8 items-center rounded-xl bg-bg-elev px-3 text-sm font-medium text-neg hover:bg-card-hover">
                 Odhlásit

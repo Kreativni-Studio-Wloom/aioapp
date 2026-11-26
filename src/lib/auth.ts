@@ -1,66 +1,56 @@
-import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { cache } from "react";
-import { randomBytes, scrypt as _scrypt, timingSafeEqual, createHash } from "node:crypto";
-import { promisify } from "node:util";
-import { and, eq, gt } from "drizzle-orm";
+import { createHash } from "node:crypto";
+import { eq, sql } from "drizzle-orm";
 import { db, t } from "@/db";
+import { supabaseConfigured, supabaseServer } from "@/lib/supabase";
 
-const scrypt = promisify(_scrypt) as (pw: string, salt: Buffer, len: number) => Promise<Buffer>;
-
-export const SESSION_COOKIE = "aio_session";
-const SESSION_DAYS = 60;
+/** Sign-in and registration are handled by Supabase Auth; app data is keyed by our own `users` row (matched by e-mail). */
 
 export const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 
-export async function hashPassword(password: string) {
-  const salt = randomBytes(16);
-  const key = await scrypt(password.normalize("NFKC"), salt, 64);
-  return `scrypt$${salt.toString("base64")}$${key.toString("base64")}`;
-}
-
-export async function verifyPassword(password: string, stored: string) {
-  const [algo, saltB64, keyB64] = stored.split("$");
-  if (algo !== "scrypt" || !saltB64 || !keyB64) return false;
-  const key = Buffer.from(keyB64, "base64");
-  const test = await scrypt(password.normalize("NFKC"), Buffer.from(saltB64, "base64"), key.length);
-  return timingSafeEqual(key, test);
-}
-
-export async function createSession(userId: string) {
-  const token = randomBytes(32).toString("base64url");
-  const expiresAt = new Date(Date.now() + SESSION_DAYS * 864e5);
-  const ua = (await headers()).get("user-agent")?.slice(0, 300) ?? null;
-  await db.insert(t.sessions).values({ id: sha256(token), userId, expiresAt, userAgent: ua });
-  (await cookies()).set(SESSION_COOKIE, token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    expires: expiresAt,
-  });
-}
-
-export async function destroySession() {
-  const jar = await cookies();
-  const token = jar.get(SESSION_COOKIE)?.value;
-  if (token) await db.delete(t.sessions).where(eq(t.sessions.id, sha256(token)));
-  jar.delete(SESSION_COOKIE);
-}
-
 export type SessionUser = { id: string; email: string; name: string | null };
 
-/** Current user from the session cookie, or null. Cached per request. */
-export const getUser = cache(async (): Promise<SessionUser | null> => {
-  const token = (await cookies()).get(SESSION_COOKIE)?.value;
-  if (!token) return null;
-  const rows = await db
+export function registrationOpen() {
+  return process.env.ALLOW_REGISTRATION !== "false";
+}
+
+/**
+ * The app's user row for a Supabase identity. Created on first sign-in (with an empty profile),
+ * unless registration is closed and the instance already has an owner.
+ */
+export async function ensureAppUser(email: string, name?: string | null): Promise<SessionUser | null> {
+  const normalized = email.trim().toLowerCase();
+  const [row] = await db
     .select({ id: t.users.id, email: t.users.email, name: t.users.name })
-    .from(t.sessions)
-    .innerJoin(t.users, eq(t.users.id, t.sessions.userId))
-    .where(and(eq(t.sessions.id, sha256(token)), gt(t.sessions.expiresAt, new Date())))
+    .from(t.users)
+    .where(eq(sql`lower(${t.users.email})`, normalized))
     .limit(1);
-  return rows[0] ?? null;
+  if (row) return row;
+  if (!registrationOpen()) {
+    const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(t.users);
+    if (count > 0) return null;
+  }
+  const [created] = await db
+    .insert(t.users)
+    .values({ email: normalized, name: name?.trim() || null, passwordHash: "" })
+    .onConflictDoNothing()
+    .returning({ id: t.users.id, email: t.users.email, name: t.users.name });
+  if (!created) return ensureAppUser(normalized, name); // created concurrently
+  await db.insert(t.profiles).values({ userId: created.id }).onConflictDoNothing();
+  return created;
+}
+
+/** Current user from the Supabase session cookie, or null. Cached per request. */
+export const getUser = cache(async (): Promise<SessionUser | null> => {
+  if (!supabaseConfigured()) return null;
+  const supabase = await supabaseServer();
+  const { data } = await supabase.auth.getClaims();
+  const claims = data?.claims;
+  const email = typeof claims?.email === "string" ? claims.email : null;
+  if (!email) return null;
+  const meta = (claims?.user_metadata ?? {}) as { name?: string };
+  return ensureAppUser(email, meta.name);
 });
 
 /** Use in server components and server actions. Redirects to /login when signed out. */

@@ -3,9 +3,10 @@
 import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { randomBytes } from "node:crypto";
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db, t } from "@/db";
-import { hashPassword, requireUser, sha256, verifyPassword, SESSION_COOKIE } from "@/lib/auth";
+import { requireUser, sha256 } from "@/lib/auth";
+import { supabaseServer } from "@/lib/supabase";
 import { str, toNum, type ActionResult } from "@/lib/utils";
 
 export async function setTheme(theme: "dark" | "light") {
@@ -39,12 +40,12 @@ export async function changePassword(_: ActionResult | undefined, form: FormData
   const current = String(form.get("current") ?? "");
   const next = String(form.get("next") ?? "");
   if (next.length < 8) return { ok: false, error: "Nové heslo musí mít alespoň 8 znaků." };
-  const [row] = await db.select({ hash: t.users.passwordHash }).from(t.users).where(eq(t.users.id, user.id));
-  if (!row || !(await verifyPassword(current, row.hash))) return { ok: false, error: "Současné heslo nesedí." };
-  await db.update(t.users).set({ passwordHash: await hashPassword(next) }).where(eq(t.users.id, user.id));
-  // sign out other devices
-  const token = (await cookies()).get(SESSION_COOKIE)?.value;
-  if (token) await db.delete(t.sessions).where(and(eq(t.sessions.userId, user.id), ne(t.sessions.id, sha256(token))));
+  const supabase = await supabaseServer();
+  const { error: wrong } = await supabase.auth.signInWithPassword({ email: user.email, password: current });
+  if (wrong) return { ok: false, error: "Současné heslo nesedí." };
+  const { error } = await supabase.auth.updateUser({ password: next });
+  if (error) return { ok: false, error: error.code === "same_password" ? "Nové heslo musí být jiné než současné." : error.message };
+  await supabase.auth.signOut({ scope: "others" });
   return { ok: true };
 }
 
@@ -63,9 +64,8 @@ export async function deleteApiKey(id: string) {
 }
 
 export async function signOutOtherDevices() {
-  const user = await requireUser();
-  const token = (await cookies()).get(SESSION_COOKIE)?.value;
-  if (token) await db.delete(t.sessions).where(and(eq(t.sessions.userId, user.id), ne(t.sessions.id, sha256(token))));
+  await requireUser();
+  await (await supabaseServer()).auth.signOut({ scope: "others" });
   revalidatePath("/settings");
 }
 

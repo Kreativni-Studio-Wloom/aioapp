@@ -1,5 +1,5 @@
 import postgres from "postgres";
-import { appOrigin, databaseUrl, describeDbUrl } from "@/lib/env";
+import { appOrigin, databaseUrl, describeDbUrl, supabaseKey, supabaseUrl } from "@/lib/env";
 import { aiEnabled } from "@/lib/ai";
 
 /**
@@ -46,9 +46,9 @@ export async function GET() {
     }
   }
 
-  const ok = db.reachable === true && db.migrated === true;
+  const ok = db.reachable === true && db.migrated === true && !!supabaseUrl() && !!supabaseKey();
   return Response.json(
-    { ok, db, appUrl: appOrigin() ?? null, ai: aiEnabled(), push: !!process.env.VAPID_PRIVATE_KEY, cron: !!process.env.CRON_SECRET },
+    { ok, db, auth: { supabaseUrl: supabaseUrl() ?? null, publishableKey: !!supabaseKey() }, appUrl: appOrigin() ?? null, ai: aiEnabled(), push: !!process.env.VAPID_PRIVATE_KEY, cron: !!process.env.CRON_SECRET },
     { status: ok ? 200 : 503, headers: { "cache-control": "no-store" } },
   );
 }
