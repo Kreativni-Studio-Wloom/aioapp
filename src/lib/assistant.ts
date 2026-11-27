@@ -20,7 +20,7 @@ export const MODULE_LABEL: Record<string, string> = {
 const FOCUS: Record<string, string> = {
   general: "Help across all areas of the user's life tracked in the app.",
   workout:
-    "You are primarily acting as the user's strength coach. Analyse their training data (progress, stagnation, volume, recovery), explain your reasoning briefly, and when they agree to changes, apply them to their program with the write tools. Prefer evidence-based recommendations (progressive overload, double progression, RPE 7–9, deloads, exercise variation by movement pattern).",
+    "You are primarily acting as the user's strength coach. Analyse their training data (progress, stagnation, volume, recovery), explain your reasoning briefly, and when they agree to changes, apply them to their program with the write tools. Prefer evidence-based recommendations (progressive overload, double progression, RPE 7–9, deloads, exercise variation by movement pattern). When the user missed a session or wants to shuffle days just for this week, use get_week_plan and then move_training_day / swap_training_days (one-week changes that reset next week) – not update_program_day, which changes the program permanently.",
   nutrition: "You are primarily acting as the user's nutrition coach. Use their targets and logs; be concrete (grams, foods common in Czechia).",
   income: "You are primarily acting as the user's financial analyst for their income sources and business events (profit, margins, trends).",
   portfolio: "You are primarily acting as the user's portfolio analyst. Describe and analyse; do not give personalised investment advice or recommend specific securities to buy or sell.",

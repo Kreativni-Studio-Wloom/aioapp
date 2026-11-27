@@ -232,3 +232,19 @@ export async function logBodyMetricAction(_: ActionResult | undefined, form: For
 export async function clearBodyMetricAction(date: string) {
   return run((uid) => svc.clearBodyMetric(uid, z.string().regex(/^\d{4}-\d{2}-\d{2}$/).parse(date)), ["/workout/body"]);
 }
+
+/* ── This week's schedule (one-week moves) ── */
+
+const weekdayOrNull = z.number().int().min(1).max(7).nullable();
+
+export async function moveDayThisWeekAction(dayId: string, toWeekday: number | null) {
+  return run((uid) => svc.moveProgramDayThisWeek(uid, uuid.parse(dayId), weekdayOrNull.parse(toWeekday)), ["/workout", "/"]);
+}
+
+export async function swapDaysThisWeekAction(dayIdA: string, dayIdB: string) {
+  return run((uid) => svc.swapProgramDaysThisWeek(uid, uuid.parse(dayIdA), uuid.parse(dayIdB)), ["/workout", "/"]);
+}
+
+export async function resetWeekPlanAction() {
+  return run((uid) => svc.resetWeekPlan(uid), ["/workout", "/"]);
+}

@@ -375,7 +375,7 @@ export function Chat(props: {
         <div ref={bottom} className="h-2" />
       </div>
 
-      <div className="sticky bottom-[calc(env(safe-area-inset-bottom)+4.75rem)] mt-4 md:bottom-6">
+      <div className="sticky bottom-[calc(var(--tabbar-space)+0.875rem)] mt-4 md:bottom-6">
         <AnimatePresence>
           {image && (
             <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="mb-2 flex items-center gap-2">

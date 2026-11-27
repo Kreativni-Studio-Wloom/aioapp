@@ -523,12 +523,184 @@ export async function reorderProgramExercises(userId: string, dayId: string, ord
   });
 }
 
-/** Today's planned day of the active program: matching weekday, else the day after the last one trained (by order). */
+/* ─────────────────────────── Weekly schedule (one-week overrides) ─────────────────────────── */
+
+const WEEKDAY_NAMES_CS = ["pondělí", "úterý", "středa", "čtvrtek", "pátek", "sobota", "neděle"];
+
+/** Monday (YYYY-MM-DD) of the week containing the Prague date `isoDay`. */
+export function weekStartOf(isoDay: string) {
+  return weekStart(new Date(isoDay + "T12:00:00Z"));
+}
+
+/** dayId → effective weekday for the week (only days that have an override; null = skipped). */
+async function weekOverrides(userId: string, dayIds: string[], ws: string) {
+  const map = new Map<string, number | null>();
+  if (!dayIds.length) return map;
+  const rows = await db
+    .select({ dayId: t.programWeekOverrides.dayId, weekday: t.programWeekOverrides.weekday })
+    .from(t.programWeekOverrides)
+    .where(and(eq(t.programWeekOverrides.userId, userId), eq(t.programWeekOverrides.weekStart, ws), inArray(t.programWeekOverrides.dayId, dayIds)));
+  for (const r of rows) map.set(r.dayId, r.weekday);
+  return map;
+}
+
+function effectiveWeekday(day: { id: string; weekday: number | null }, ov: Map<string, number | null>) {
+  return ov.has(day.id) ? ov.get(day.id)! : day.weekday;
+}
+
+export type WeekPlanDay = {
+  dayId: string;
+  name: string;
+  exerciseCount: number;
+  /** Weekday from the program (1–7, null = flexible). */
+  baseWeekday: number | null;
+  /** Weekday this week (null = not scheduled / skipped). */
+  weekday: number | null;
+  /** Changed for this week only. */
+  moved: boolean;
+  skipped: boolean;
+  /** Finished workout of this program day within the week. */
+  done: { workoutId: string; date: string } | null;
+};
+export type WeekPlanSlot = { weekday: number; date: string; isToday: boolean; isPast: boolean; days: WeekPlanDay[] };
+export type WeekPlan = {
+  programId: string;
+  programName: string;
+  weekStart: string;
+  weekEnd: string;
+  slots: WeekPlanSlot[];
+  /** Days without a weekday this week (flexible days or skipped this week). */
+  unscheduled: WeekPlanDay[];
+  hasChanges: boolean;
+};
+
+/** The active program laid out over the week containing `date` (default: this week), with one-week changes applied. */
+export async function getWeekPlan(userId: string, date?: string): Promise<WeekPlan | null> {
+  const program = await getActiveProgram(userId);
+  if (!program || !program.days.length) return null;
+  const ws = weekStartOf(date ?? isoDate());
+  const we = addDays(ws, 6);
+  const ov = await weekOverrides(userId, program.days.map((d) => d.id), ws);
+  const workouts = await listWorkoutsWhere(userId, { since: pragueDayStart(ws), before: pragueDayStart(addDays(ws, 7)) });
+  const today = isoDate();
+  const entries: WeekPlanDay[] = program.days.map((d) => {
+    const weekday = effectiveWeekday(d, ov);
+    const w = workouts.find((x) => x.programDayId === d.id);
+    return {
+      dayId: d.id,
+      name: d.name,
+      exerciseCount: d.exercises.length,
+      baseWeekday: d.weekday,
+      weekday,
+      moved: ov.has(d.id) && weekday !== d.weekday,
+      skipped: ov.has(d.id) && weekday == null,
+      done: w ? { workoutId: w.id, date: w.date } : null,
+    };
+  });
+  const slots = Array.from({ length: 7 }, (_, i) => {
+    const date = addDays(ws, i);
+    return { weekday: i + 1, date, isToday: date === today, isPast: date < today, days: entries.filter((e) => e.weekday === i + 1) };
+  });
+  return {
+    programId: program.id,
+    programName: program.name,
+    weekStart: ws,
+    weekEnd: we,
+    slots,
+    unscheduled: entries.filter((e) => e.weekday == null),
+    hasChanges: entries.some((e) => e.moved),
+  };
+}
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+async function setWeekOverride(q: Tx, userId: string, dayId: string, baseWeekday: number | null, ws: string, weekday: number | null) {
+  if (weekday === baseWeekday) {
+    await q.delete(t.programWeekOverrides).where(and(eq(t.programWeekOverrides.dayId, dayId), eq(t.programWeekOverrides.weekStart, ws)));
+    return;
+  }
+  await q
+    .insert(t.programWeekOverrides)
+    .values({ userId, dayId, weekStart: ws, weekday })
+    .onConflictDoUpdate({ target: [t.programWeekOverrides.dayId, t.programWeekOverrides.weekStart], set: { weekday } });
+}
+
+async function loadProgramDays(userId: string, dayId: string) {
+  const d = await assertDay(userId, dayId);
+  const days = await db
+    .select({ id: t.programDays.id, name: t.programDays.name, weekday: t.programDays.weekday })
+    .from(t.programDays)
+    .where(eq(t.programDays.programId, d.programId));
+  return days;
+}
+
+/**
+ * Move a program day to another weekday for one week only (`toWeekday` null = skip it this week).
+ * If another day of the program is already planned on the target weekday, the two swap places
+ * (unless `swap` is false, then both stay on that day).
+ */
+export async function moveProgramDayThisWeek(
+  userId: string,
+  dayId: string,
+  toWeekday: number | null,
+  opts: { date?: string; swap?: boolean } = {},
+) {
+  if (toWeekday != null && (toWeekday < 1 || toWeekday > 7)) throw new WorkoutError("Den v týdnu musí být 1–7");
+  const ws = weekStartOf(opts.date ?? isoDate());
+  const days = await loadProgramDays(userId, dayId);
+  const ov = await weekOverrides(userId, days.map((d) => d.id), ws);
+  const day = days.find((d) => d.id === dayId)!;
+  const from = effectiveWeekday(day, ov);
+  if (from === toWeekday) return { weekStart: ws, moved: [] as string[] };
+  const moved = [`${day.name} → ${toWeekday ? WEEKDAY_NAMES_CS[toWeekday - 1] : "tento týden vynechat"}`];
+  await db.transaction(async (tx) => {
+    if (toWeekday != null && opts.swap !== false && from != null) {
+      for (const other of days.filter((d) => d.id !== dayId && effectiveWeekday(d, ov) === toWeekday)) {
+        await setWeekOverride(tx, userId, other.id, other.weekday, ws, from);
+        moved.push(`${other.name} → ${WEEKDAY_NAMES_CS[from - 1]}`);
+      }
+    }
+    await setWeekOverride(tx, userId, dayId, day.weekday, ws, toWeekday);
+  });
+  return { weekStart: ws, moved };
+}
+
+/** Swap the weekdays of two days of the same program for one week only. */
+export async function swapProgramDaysThisWeek(userId: string, dayIdA: string, dayIdB: string, opts: { date?: string } = {}) {
+  if (dayIdA === dayIdB) throw new WorkoutError("Vyber dva různé dny");
+  const ws = weekStartOf(opts.date ?? isoDate());
+  const days = await loadProgramDays(userId, dayIdA);
+  const a = days.find((d) => d.id === dayIdA)!;
+  const b = days.find((d) => d.id === dayIdB);
+  if (!b) throw new WorkoutError("Oba dny musí být ze stejného programu");
+  const ov = await weekOverrides(userId, days.map((d) => d.id), ws);
+  const wa = effectiveWeekday(a, ov);
+  const wb = effectiveWeekday(b, ov);
+  await db.transaction(async (tx) => {
+    await setWeekOverride(tx, userId, a.id, a.weekday, ws, wb);
+    await setWeekOverride(tx, userId, b.id, b.weekday, ws, wa);
+  });
+  return { weekStart: ws };
+}
+
+/** Drop all one-week changes for the week containing `date` (default: this week), back to the program's schedule. */
+export async function resetWeekPlan(userId: string, opts: { date?: string } = {}) {
+  const ws = weekStartOf(opts.date ?? isoDate());
+  const removed = await db
+    .delete(t.programWeekOverrides)
+    .where(and(eq(t.programWeekOverrides.userId, userId), eq(t.programWeekOverrides.weekStart, ws)))
+    .returning({ id: t.programWeekOverrides.id });
+  return { weekStart: ws, removed: removed.length };
+}
+
+/** Today's planned day of the active program: the day planned on today's weekday this week (incl. one-week changes), else the day after the last one trained (by order). */
 export async function getTodayPlan(userId: string) {
   const program = await getActiveProgram(userId);
   if (!program || !program.days.length) return null;
   const wd = pragueWeekday();
-  let day = program.days.find((d) => d.weekday === wd) ?? null;
+  const ov = await weekOverrides(userId, program.days.map((d) => d.id), weekStart());
+  let day = program.days.find((d) => effectiveWeekday(d, ov) === wd) ?? null;
+  const moved = !!day && ov.has(day.id);
   let reason: "weekday" | "next" = "weekday";
   if (!day) {
     // If the program uses weekdays and today isn't one of them, it's a rest day – still suggest next in order.
@@ -542,8 +714,8 @@ export async function getTodayPlan(userId: string) {
     const idx = last ? program.days.findIndex((d) => d.id === last.dayId) : -1;
     day = program.days[(idx + 1) % program.days.length];
   }
-  const restDay = reason === "next" && program.days.some((d) => d.weekday != null);
-  return { programId: program.id, programName: program.name, day, reason, restDay };
+  const restDay = reason === "next" && program.days.some((d) => effectiveWeekday(d, ov) != null);
+  return { programId: program.id, programName: program.name, day, reason, restDay, weekday: wd, movedThisWeek: moved };
 }
 
 /* ───────────────────────────────── Workouts ───────────────────────────────── */

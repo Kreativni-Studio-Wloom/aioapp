@@ -456,11 +456,20 @@ export const TOOLS: ToolDef[] = [
   }),
   tool({
     name: "get_today_plan",
-    description: "Today's planned training day from the active program (or next in rotation).",
+    description: "Today's planned training day from the active program incl. this week's moves (or next in rotation).",
     module: "workout",
     write: false,
     schema: z.object({}),
     run: (u) => workout.getTodayPlan(u),
+  }),
+  tool({
+    name: "get_week_plan",
+    description:
+      "The active program laid out over a week (Mon–Sun) with this week's one-off changes applied: which training day is on which weekday, what is done, moved or skipped. Use before moving/swapping days.",
+    module: "workout",
+    write: false,
+    schema: z.object({ date: date.optional().describe("Any date in the wanted week; default this week") }),
+    run: (u, i) => workout.getWeekPlan(u, i.date),
   }),
   tool({
     name: "get_workout",
@@ -690,12 +699,55 @@ export const TOOLS: ToolDef[] = [
   }),
   tool({
     name: "update_program_day",
-    description: "Rename a program day or change its weekday (1=Mon…7=Sun, null = flexible).",
+    description: "Rename a program day or PERMANENTLY change its weekday (1=Mon…7=Sun, null = flexible). For a one-week change use move_training_day.",
     module: "workout",
     write: true,
     schema: z.object({ dayId: z.string(), name: z.string().optional(), weekday: z.number().int().min(1).max(7).nullable().optional() }),
     summarize: (i) => `Upravit den${i.name ? ` „${i.name}“` : ""}`,
     run: (u, { dayId, ...patch }) => workout.updateProgramDay(u, dayId, patch),
+  }),
+  tool({
+    name: "move_training_day",
+    description:
+      "Move a training day to another weekday FOR ONE WEEK ONLY (e.g. missed Monday's session → do it on Tuesday). Resets automatically next week; the program itself is unchanged. toWeekday null = skip it this week. If another day is already planned on the target weekday they swap places (swap=false keeps both on that day). Prefer this over update_program_day when the user is rescheduling just this week.",
+    module: "workout",
+    write: true,
+    schema: z.object({
+      dayId: z.string(),
+      dayName: z.string(),
+      toWeekday: z.number().int().min(1).max(7).nullable().describe("1=Monday … 7=Sunday, null = skip this week"),
+      swap: z.boolean().optional(),
+      date: date.optional().describe("Any date in the week to change; default this week"),
+    }),
+    summarize: (i) =>
+      i.toWeekday == null
+        ? `Tento týden vynechat „${i.dayName}“`
+        : `Tento týden přesunout „${i.dayName}“ na ${["pondělí", "úterý", "středu", "čtvrtek", "pátek", "sobotu", "neděli"][i.toWeekday - 1]}`,
+    run: (u, i) => workout.moveProgramDayThisWeek(u, i.dayId, i.toWeekday, { date: i.date, swap: i.swap }),
+  }),
+  tool({
+    name: "swap_training_days",
+    description: "Swap the weekdays of two training days of the same program FOR ONE WEEK ONLY (resets next week).",
+    module: "workout",
+    write: true,
+    schema: z.object({
+      dayIdA: z.string(),
+      dayNameA: z.string(),
+      dayIdB: z.string(),
+      dayNameB: z.string(),
+      date: date.optional().describe("Any date in the week to change; default this week"),
+    }),
+    summarize: (i) => `Tento týden prohodit „${i.dayNameA}“ ↔ „${i.dayNameB}“`,
+    run: (u, i) => workout.swapProgramDaysThisWeek(u, i.dayIdA, i.dayIdB, { date: i.date }),
+  }),
+  tool({
+    name: "reset_week_plan",
+    description: "Undo all one-week moves/swaps/skips for a week, back to the program's normal weekdays.",
+    module: "workout",
+    write: true,
+    schema: z.object({ date: date.optional().describe("Any date in the week; default this week") }),
+    summarize: () => "Vrátit týdenní rozvrh do původního stavu",
+    run: (u, i) => workout.resetWeekPlan(u, { date: i.date }),
   }),
   tool({
     name: "remove_program_day",

@@ -167,6 +167,26 @@ export const programDays = pgTable("program_days", {
   weekday: integer("weekday"), // 1 = Monday … 7 = Sunday, null = flexible
 });
 
+/**
+ * One-week schedule changes ("this week I train Legs on Wednesday instead of Monday").
+ * Keyed by the Monday of the week, so they stop applying automatically the next week.
+ * weekday null = skipped this week.
+ */
+export const programWeekOverrides = pgTable(
+  "program_week_overrides",
+  {
+    id: id(),
+    userId: userRef(),
+    dayId: uuid("day_id")
+      .notNull()
+      .references(() => programDays.id, { onDelete: "cascade" }),
+    weekStart: date("week_start").notNull(), // Monday, YYYY-MM-DD (Europe/Prague)
+    weekday: integer("weekday"), // 1 = Monday … 7 = Sunday, null = skipped this week
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("program_week_overrides_day_week").on(t.dayId, t.weekStart), index("program_week_overrides_user_week").on(t.userId, t.weekStart)],
+);
+
 export const programExercises = pgTable("program_exercises", {
   id: id(),
   dayId: uuid("day_id")

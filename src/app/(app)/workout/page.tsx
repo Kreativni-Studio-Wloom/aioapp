@@ -6,16 +6,18 @@ import { requireUser } from "@/lib/auth";
 import { addDays, dateLabel, duration, isoDate, num } from "@/lib/format";
 import { fmtVolume } from "@/lib/workout/calc";
 import { WEEKDAYS_LONG_CS } from "@/lib/workout/constants";
-import { getActiveWorkout, getLatestWeight, getRecentWorkouts, getStagnation, getTodayPlan, getWeekStats } from "@/lib/workout/service";
+import { getActiveWorkout, getLatestWeight, getRecentWorkouts, getStagnation, getTodayPlan, getWeekPlan, getWeekStats } from "@/lib/workout/service";
 import { startWorkoutAction } from "./actions";
 import { WorkoutList } from "./_components/workout-list";
 import { ActionForm } from "./_components/action-form";
+import { WeekPlanCard } from "./_components/week-plan";
 
 export default async function WorkoutHome() {
   const user = await requireUser();
-  const [active, plan, week, stagnation, recent, weight] = await Promise.all([
+  const [active, plan, weekPlan, week, stagnation, recent, weight] = await Promise.all([
     getActiveWorkout(user.id),
     getTodayPlan(user.id),
+    getWeekPlan(user.id),
     getWeekStats(user.id),
     getStagnation(user.id),
     getRecentWorkouts(user.id, 5),
@@ -58,7 +60,11 @@ export default async function WorkoutHome() {
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="text-xs text-muted">
-                {plan.restDay ? "Dnes volno · další v pořadí" : plan.reason === "weekday" ? `Dnes · ${WEEKDAYS_LONG_CS[(plan.day.weekday ?? 1) - 1]}` : "Další v pořadí"}
+                {plan.restDay
+                  ? "Dnes volno · další v pořadí"
+                  : plan.reason === "weekday"
+                    ? `Dnes · ${WEEKDAYS_LONG_CS[plan.weekday - 1]}${plan.movedThisWeek ? " · přesunuto" : ""}`
+                    : "Další v pořadí"}
               </div>
               <div className="mt-1 truncate text-2xl font-semibold tracking-tight">{plan.day.name}</div>
               <div className="truncate text-sm text-muted">{plan.programName}</div>
@@ -148,6 +154,11 @@ export default async function WorkoutHome() {
       )}
 
       <SectionTitle>Tento týden</SectionTitle>
+      {weekPlan && (
+        <div className="mb-3">
+          <WeekPlanCard plan={weekPlan} />
+        </div>
+      )}
       <Card className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <Stat label="Tréninky" value={week.workouts} />
         <Stat label="Objem" value={fmtVolume(week.volumeKg)} />

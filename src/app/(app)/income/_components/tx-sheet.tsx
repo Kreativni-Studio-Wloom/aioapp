@@ -57,7 +57,7 @@ export function TxSheetProvider({ data, children }: { data: PickerData; children
         animate={{ scale: 1, opacity: 1 }}
         whileTap={{ scale: 0.92 }}
         transition={{ type: "spring", damping: 22, stiffness: 320 }}
-        className="fixed bottom-[calc(env(safe-area-inset-bottom)+5rem)] right-4 z-30 grid h-14 w-14 place-items-center rounded-full bg-fg text-inverse shadow-lg md:bottom-8 md:right-8"
+        className="fixed bottom-[calc(var(--tabbar-space)+0.875rem)] right-4 z-30 grid h-14 w-14 place-items-center rounded-full bg-fg text-inverse shadow-lg md:bottom-8 md:right-8"
         aria-label="Přidat transakci"
       >
         <Plus className="h-6 w-6" strokeWidth={2.25} />

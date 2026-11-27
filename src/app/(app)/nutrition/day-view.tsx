@@ -281,7 +281,7 @@ export function DayView({
         type="button"
         onClick={() => openAdd()}
         whileTap={{ scale: 0.92 }}
-        className="fixed bottom-[calc(env(safe-area-inset-bottom)+4.75rem)] right-4 z-30 grid h-14 w-14 place-items-center rounded-full bg-fg text-inverse shadow-lg shadow-black/20 md:bottom-8 md:right-8"
+        className="fixed bottom-[calc(var(--tabbar-space)+0.875rem)] right-4 z-30 grid h-14 w-14 place-items-center rounded-full bg-fg text-inverse shadow-lg shadow-black/20 md:bottom-8 md:right-8"
         aria-label="Přidat jídlo"
       >
         <Plus className="h-7 w-7" strokeWidth={2.25} />
