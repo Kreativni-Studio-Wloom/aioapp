@@ -76,16 +76,38 @@ body {
   letter-spacing: -0.01em;
 }
 
-/* privacy mode: blur amounts in money areas (toggle in the top bar / ⌘K) */
-[data-privacy="on"] [data-private] .num,
-[data-privacy="on"] [data-private] .recharts-wrapper,
-[data-privacy="on"] .private {
-  filter: blur(7px);
+/* privacy mode: blur amounts in money areas (toggle in the top bar / ⌘K).
+   Text is blurred with a text-shadow "ghost" instead of `filter`: no compositing layers (filter flickers
+   and mis-paints in Safari under the glass bars and during motion animations), works on inline spans and
+   inputs, and keeps each number's own colour. Only the OUTERMOST masked element is styled, children
+   inherit, so nested .num never double-blurs and one hover/focus reveals the whole value. */
+[data-private] .num,
+.private {
+  transition: color 0.2s var(--ease-spring), -webkit-text-fill-color 0.2s var(--ease-spring), text-shadow 0.2s var(--ease-spring);
+}
+[data-privacy="on"] :is([data-private] .num, .private):not(:is(.num, .private, .recharts-wrapper) *) {
+  -webkit-text-fill-color: transparent;
+  text-shadow: 0 0 0.45em currentColor;
+}
+/* charts are SVG: blur the whole plot (block-level, so the filter is stable) */
+[data-private] .recharts-wrapper {
   transition: filter 0.2s var(--ease-spring);
 }
-[data-privacy="on"] [data-private] .num:hover,
-[data-privacy="on"] .private:hover {
-  filter: none;
+[data-privacy="on"] [data-private] .recharts-wrapper:not(:is(.num, .private) *) {
+  filter: blur(7px);
+}
+/* reveal: hover only with a real pointer (on touch a tap would leave it stuck open), and while editing */
+@media (hover: hover) and (pointer: fine) {
+  [data-privacy="on"] :is([data-private] .num, .private):hover,
+  [data-privacy="on"] [data-private] .recharts-wrapper:hover {
+    -webkit-text-fill-color: currentColor;
+    text-shadow: none;
+    filter: none;
+  }
+}
+[data-privacy="on"] :is([data-private] .num, .private):is(:focus, :focus-within) {
+  -webkit-text-fill-color: currentColor;
+  text-shadow: none;
 }
 
 /* legal documents (generated HTML from /pravni) */
@@ -186,6 +208,8 @@ body {
 
 /* selection lens inside a glass bar: a denser drop of glass that lifts when touched */
 .glass-lens {
+  will-change: transform;
+  backface-visibility: hidden;
   background: rgb(0 0 0 / 0.07);
   box-shadow: inset 0 0.5px 0 rgb(255 255 255 / 0.7);
   transition: background-color 0.25s var(--ease-spring), box-shadow 0.25s var(--ease-spring);
@@ -195,9 +219,8 @@ body {
   box-shadow: inset 0 0.5px 0 rgb(255 255 255 / 0.22);
 }
 .glass-lens.is-pressed {
+  /* no nested backdrop-filter: glass-inside-glass flickers in Safari */
   background: rgb(255 255 255 / 0.35);
-  -webkit-backdrop-filter: blur(2px) saturate(160%) brightness(1.08);
-  backdrop-filter: blur(2px) saturate(160%) brightness(1.08);
   box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.8), inset 0 1px 1px rgb(255 255 255 / 0.9), 0 6px 18px -4px rgb(0 0 0 / 0.25);
 }
 [data-theme="dark"] .glass-lens.is-pressed {

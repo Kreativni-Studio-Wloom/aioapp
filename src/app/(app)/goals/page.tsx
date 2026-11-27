@@ -14,7 +14,7 @@ const fmt = (g: GoalDTO, v: number | null) => (v == null ? "–" : g.unit === "k
 
 function GoalCard({ g }: { g: GoalDTO }) {
   return (
-    <Card className={g.unit === "CZK" ? "private" : undefined}>
+    <Card data-private={g.unit === "CZK" || undefined}>
       <div className="flex items-start justify-between gap-3">
         <Link href={g.href} className="min-w-0 hover:underline">
           <div className="truncate font-semibold">{g.title}</div>

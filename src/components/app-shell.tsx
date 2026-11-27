@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "motion/react";
 import { Home, Dumbbell, Apple, Wallet, LineChart, Sparkles, Settings, Target, Search, Eye, EyeOff, type LucideIcon } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, isPrivateRoute } from "@/lib/utils";
 import { CommandPalette, OPEN_PALETTE_EVENT, setPrivacy, usePrivacy } from "@/components/command-palette";
 import { TabBar } from "@/components/tab-bar";
 
@@ -51,7 +51,7 @@ function PrivacyButton({ className }: { className?: string }) {
 export function AppShell({ children, userLabel }: { children: React.ReactNode; userLabel: string }) {
   const pathname = usePathname();
   const hideMobileNav = /^\/workout\/session\//.test(pathname);
-  const privateRoute = /^\/(income|portfolio)(\/|$)/.test(pathname);
+  const privateRoute = isPrivateRoute(pathname);
 
   return (
     <div className="min-h-dvh md:flex">

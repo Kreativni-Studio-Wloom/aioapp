@@ -249,7 +249,7 @@ export default async function Home() {
         ) : (
           <div className="grid gap-3 md:grid-cols-2">
             {openGoals.map((goal) => (
-              <div key={goal.id} className={goal.unit === "CZK" ? "private" : undefined}>
+              <div key={goal.id} data-private={goal.unit === "CZK" || undefined}>
                 <div className="mb-1 flex justify-between gap-3 text-sm">
                   <span className="truncate">{goal.title}</span>
                   <span className="num shrink-0 text-muted">{Math.round(goal.progress * 100)} %</span>

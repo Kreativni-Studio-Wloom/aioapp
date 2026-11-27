@@ -3,9 +3,10 @@
 import { AnimatePresence, motion, useSpring, useTransform, useMotionValueEvent } from "motion/react";
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode, type ComponentProps } from "react";
 import { createPortal } from "react-dom";
+import { usePathname } from "next/navigation";
 import { useFormStatus } from "react-dom";
 import { Button } from "./index";
-import { cn } from "@/lib/utils";
+import { cn, isPrivateRoute } from "@/lib/utils";
 
 /* ── Sheet: bottom sheet on mobile, centered dialog on desktop ── */
 
@@ -27,6 +28,8 @@ export function Sheet({
     () => true,
     () => false,
   );
+  // the sheet is portalled to <body>, outside <main data-private>, so it carries the privacy scope itself
+  const privateScope = isPrivateRoute(usePathname());
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -43,7 +46,7 @@ export function Sheet({
   return createPortal(
     <AnimatePresence>
       {open && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center">
+        <div data-private={privateScope || undefined} className="fixed inset-0 z-50 flex items-end justify-center md:items-center">
           <motion.div
             className="absolute inset-0 bg-black/60 backdrop-blur-[2px]"
             initial={{ opacity: 0 }}

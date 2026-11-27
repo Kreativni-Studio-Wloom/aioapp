@@ -2,6 +2,9 @@ import clsx, { type ClassValue } from "clsx";
 
 export const cn = (...v: ClassValue[]) => clsx(v);
 
+/** Routes whose amounts get blurred in privacy mode (see [data-private] in globals.css). */
+export const isPrivateRoute = (pathname: string) => /^\/(income|portfolio)(\/|$)/.test(pathname);
+
 /** Parse a number from a form value, accepting Czech decimal comma. */
 export function toNum(v: FormDataEntryValue | string | null | undefined): number | null {
   if (v == null) return null;
