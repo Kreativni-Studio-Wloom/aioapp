@@ -7,6 +7,7 @@ import { fmtVolume } from "@/lib/workout/calc";
 import { equipmentLabel, muscleLabel, patternLabel } from "@/lib/workout/constants";
 import { getAlternatives, getExerciseHistory } from "@/lib/workout/service";
 import { TrendChart, VolumeBars } from "../../_components/charts";
+import { ExerciseAnimation } from "@/components/exercise-animation";
 import { DeleteExerciseButton } from "./delete-button";
 
 export default async function ExercisePage({ params }: { params: Promise<{ id: string }> }) {
@@ -35,6 +36,10 @@ export default async function ExercisePage({ params }: { params: Promise<{ id: s
           ))}
         </div>
       )}
+
+      <Card className="mb-5 flex justify-center px-0 py-2 md:px-0 md:py-3">
+        <ExerciseAnimation exercise={exercise} className="aspect-[4/3] w-full max-w-sm" />
+      </Card>
 
       {!sessions.length ? (
         <Empty title="Zatím žádná historie">Jakmile cvik zapíšeš v tréninku, uvidíš tu grafy a osobní rekordy.</Empty>

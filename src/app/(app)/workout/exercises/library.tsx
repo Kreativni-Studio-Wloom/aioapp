@@ -9,6 +9,7 @@ import { Sheet } from "@/components/ui/client";
 import { EQUIPMENT, MUSCLES, PATTERNS, equipmentLabel, muscleLabel, patternLabel } from "@/lib/workout/constants";
 import type { ExerciseDTO } from "@/lib/workout/service";
 import type { Equipment } from "@/db/schema";
+import { ExerciseAnimation } from "@/components/exercise-animation";
 import { createExerciseAction } from "../actions";
 import { MuscleChips, filterExercises } from "../_components/exercise-picker";
 
@@ -38,8 +39,9 @@ export function ExerciseLibrary({ exercises }: { exercises: ExerciseDTO[] }) {
           <Link
             key={e.id}
             href={`/workout/exercises/${e.id}`}
-            className="flex min-h-14 items-center gap-3 border-b border-line px-4 py-2.5 transition-colors last:border-0 hover:bg-card-hover"
+            className="flex min-h-14 items-center gap-3 border-b border-line py-2 pl-2 pr-4 transition-colors last:border-0 hover:bg-card-hover"
           >
+            <ExerciseAnimation exercise={e} mode="hover" className="h-11 w-[58px] shrink-0" />
             <div className="min-w-0 flex-1">
               <div className="truncate font-medium">{e.name}</div>
               <div className="truncate text-xs text-muted">
