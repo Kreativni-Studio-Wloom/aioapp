@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { Plus, RefreshCw, Search } from "lucide-react";
 import { Button, Field, Input, Select, Textarea, Badge } from "@/components/ui";
 import { ConfirmButton, Sheet, Spinner } from "@/components/ui/client";
+import { SearchSkeleton } from "@/components/skeleton";
 import { isoDate, money, pct } from "@/lib/format";
 import { cn, toNum } from "@/lib/utils";
 import { ASSET_CLASSES, CLASS_LABEL, PORTFOLIO_CURRENCIES, defaultSource, type AssetClass, type PriceSource } from "@/lib/portfolio/constants";
@@ -151,7 +152,6 @@ function InstrumentSearch({ cls, onPick, onBack }: { cls: AssetClass; onPick: (p
           placeholder={crypto ? "Bitcoin, ETH…" : "Ticker nebo název (VWCE, Apple…)"}
           className="pl-10"
         />
-        {loading && <Spinner className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted" />}
       </div>
       {err && <p className="text-sm text-neg">{err}</p>}
       <div className="space-y-1">
@@ -169,6 +169,7 @@ function InstrumentSearch({ cls, onPick, onBack }: { cls: AssetClass; onPick: (p
             <Badge>{h.symbol}</Badge>
           </button>
         ))}
+        {loading && !hits.length && <SearchSkeleton count={3} />}
         {q.trim() && !loading && !hits.length && !err && <p className="px-3 py-2 text-sm text-muted">Nic nenalezeno.</p>}
       </div>
       <div className="flex justify-between gap-2 pt-2">

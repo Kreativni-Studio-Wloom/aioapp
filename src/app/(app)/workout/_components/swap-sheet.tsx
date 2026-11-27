@@ -2,7 +2,8 @@
 
 import { useState, type ReactNode } from "react";
 import { Badge, Button } from "@/components/ui";
-import { Sheet, Spinner } from "@/components/ui/client";
+import { Sheet } from "@/components/ui/client";
+import { SearchSkeleton } from "@/components/skeleton";
 import { equipmentLabel, muscleLabel } from "@/lib/workout/constants";
 import type { AlternativeDTO, ExerciseDTO } from "@/lib/workout/service";
 import { ExercisePicker } from "./exercise-picker";
@@ -47,9 +48,7 @@ export function SwapSheet({
       {currentName && <p className="mb-2 text-sm text-muted">Místo „{currentName}“:</p>}
       {children}
       {alternatives == null ? (
-        <div className="flex justify-center py-8 text-muted">
-          <Spinner />
-        </div>
+        <SearchSkeleton count={4} label="Hledám náhrady…" />
       ) : alternatives.length ? (
         <div>
           {alternatives.map((a) => (

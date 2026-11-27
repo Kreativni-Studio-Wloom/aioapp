@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { Camera, ChevronLeft, ImagePlus, MessageSquareText, ScanBarcode, Search, Star, Trash2, X, Zap } from "lucide-react";
 import { Button, Field, Input, Textarea } from "@/components/ui";
 import { Segmented, Sheet, Spinner } from "@/components/ui/client";
+import { SearchSkeleton } from "@/components/skeleton";
 import { num } from "@/lib/format";
 import { cn, toNum } from "@/lib/utils";
 import { MEALS, scalePer100, type MealType } from "@/lib/nutrition/calc";
@@ -192,13 +193,13 @@ function SearchTab({ recent, onPick, onCreate }: { recent: FoodHit[]; onPick: (h
           onChange={(e) => setQ(e.target.value)}
           className="pl-10"
         />
-        {(loadingLocal || loadingOff) && <Spinner className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted" />}
       </div>
 
       {showRecent && recent.length > 0 && <ListLabel>Oblíbené a nedávné</ListLabel>}
       {showRecent && recent.length === 0 && <p className="py-6 text-center text-sm text-muted">Začni psát – prohledáme tvoje potraviny i Open Food Facts.</p>}
       {!showRecent && local && local.length > 0 && <ListLabel>Moje a uložené</ListLabel>}
       <HitList hits={localHits} onPick={onPick} />
+      {!showRecent && loadingLocal && !local?.length && <SearchSkeleton count={2} />}
 
       {!showRecent && off && off.length > 0 && (
         <>
@@ -206,6 +207,7 @@ function SearchTab({ recent, onPick, onCreate }: { recent: FoodHit[]; onPick: (h
           <HitList hits={off} onPick={onPick} />
         </>
       )}
+      {!showRecent && loadingOff && !off?.length && <SearchSkeleton count={3} />}
       {!showRecent && !loadingLocal && !loadingOff && local && off && local.length === 0 && off.length === 0 && (
         <p className="py-4 text-center text-sm text-muted">Nic jsme nenašli.</p>
       )}
