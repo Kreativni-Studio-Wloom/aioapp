@@ -17,13 +17,20 @@ const isProd = process.env.NODE_ENV === "production";
 const MAX_IDLE_MS = isProd ? 4_000 : 10 * 60_000;
 
 function createConn(url: string): Conn {
-  // prepare:false keeps it compatible with Supabase's transaction pooler (port 6543)
   const client = postgres(url, {
+    // prepare:false keeps it compatible with Supabase's transaction pooler (port 6543)
     prepare: false,
-    max: isProd ? 3 : 10,
+    // Supavisor (port 6543) hangs on pipelined queries in transaction mode: once more queries run at
+    // once than there are connections, postgres.js pipelines them and their answers never arrive –
+    // pages with many parallel queries then spun until the function timed out. One query per
+    // connection, and enough connections that a page's parallel queries rarely have to wait.
+    max_pipeline: 1,
+    max: 10,
     idle_timeout: isProd ? 3 : 0, // seconds – close idle sockets ourselves before the pooler does
     max_lifetime: isProd ? 60 : null,
     connect_timeout: 10,
+    // backstop: a pooler that stops answering rejects the query instead of hanging the page
+    query_timeout: 20,
   });
   return { client, db: drizzle(client, { schema }), lastUsed: Date.now() };
 }
