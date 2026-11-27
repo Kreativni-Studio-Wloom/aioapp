@@ -141,6 +141,15 @@ function AddFlow({ date, initialMeal, recent, aiEnabled, onDone }: { date: strin
 
 function SearchTab({ recent, onPick, onCreate }: { recent: FoodHit[]; onPick: (h: FoodHit) => void; onCreate: (name: string) => void }) {
   const [q, setQ] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
+  // No autoFocus: on phones it fires while the sheet is still sliding in off-screen and iOS
+  // scrolls the page to the bottom to reveal the field (plus pops the keyboard over the list).
+  // Desktop only, after the open animation, without scrolling.
+  useEffect(() => {
+    if (!window.matchMedia("(pointer: fine)").matches) return;
+    const t = setTimeout(() => searchRef.current?.focus({ preventScroll: true }), 300);
+    return () => clearTimeout(t);
+  }, []);
   const [local, setLocal] = useState<FoodHit[] | null>(null);
   const [off, setOff] = useState<FoodHit[] | null>(null);
   const [loadingLocal, setLoadingLocal] = useState(false);
@@ -185,7 +194,7 @@ function SearchTab({ recent, onPick, onCreate }: { recent: FoodHit[]; onPick: (h
       <div className="relative">
         <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-subtle" />
         <Input
-          autoFocus
+          ref={searchRef}
           type="search"
           enterKeyHint="search"
           placeholder="Hledat potravinu…"
