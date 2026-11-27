@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState } from "react";
+import { useActionState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Field, Input } from "@/components/ui";
-import { SubmitButton } from "@/components/ui/client";
+import { Spinner, SubmitButton } from "@/components/ui/client";
 import { forgotPassword, login, register, resetPassword, type AuthState } from "./actions";
 
 type Mode = "login" | "register" | "forgot" | "reset";
@@ -17,11 +17,24 @@ const SUBMIT: Record<Mode, string> = {
   reset: "Uložit nové heslo",
 };
 
+const PENDING: Record<Mode, string> = {
+  login: "Přihlašuji…",
+  register: "Vytvářím účet…",
+  forgot: "Odesílám…",
+  reset: "Ukládám…",
+};
+
 const linkCls = "text-fg underline-offset-4 hover:underline";
 
 export function AuthForm({ mode, next, notice }: { mode: Mode; next?: string; notice?: string }) {
   const [state, action] = useActionState<AuthState, FormData>(ACTIONS[mode], undefined);
   const done = !!state?.info && (mode === "register" || mode === "forgot");
+  const redirectTo = state?.redirectTo;
+
+  // full page load: the app shell and dashboard render fresh with the new session cookies
+  useEffect(() => {
+    if (redirectTo) window.location.replace(redirectTo);
+  }, [redirectTo]);
 
   return (
     <motion.form
@@ -110,8 +123,14 @@ export function AuthForm({ mode, next, notice }: { mode: Mode; next?: string; no
       </AnimatePresence>
 
       {!done && (
-        <SubmitButton size="lg" className="mt-2 w-full">
-          {SUBMIT[mode]}
+        <SubmitButton size="lg" className="mt-2 w-full" pendingText={PENDING[mode]} disabled={!!redirectTo}>
+          {redirectTo ? (
+            <>
+              <Spinner /> Načítám aplikaci…
+            </>
+          ) : (
+            SUBMIT[mode]
+          )}
         </SubmitButton>
       )}
 

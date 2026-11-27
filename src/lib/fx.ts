@@ -8,6 +8,8 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** Today's fixing isn't stored under today until ČNB publishes it (~14:30) – memoise the interim answer briefly. */
 const todayMemo = new Map<string, { at: number; rates: Record<string, number> }>();
 const TODAY_TTL = 30 * 60 * 1000;
+/** One ČNB request per date at a time – parallel lookups of several currencies share it. */
+const inflight = new Map<string, Promise<Record<string, number>>>();
 
 /**
  * Fetch the ČNB daily fixing valid for a date and store all rates – under the actual fixing date and,
@@ -58,7 +60,12 @@ export async function fxRate(currency: string, date: string = isoDate()): Promis
   let rates: Record<string, number>;
   try {
     // only alias past days – today's fixing may not be published yet (ČNB then returns yesterday's)
-    rates = await fetchCnb(day, day < today ? day : undefined);
+    let pending = inflight.get(day);
+    if (!pending) {
+      pending = fetchCnb(day, day < today ? day : undefined).finally(() => inflight.delete(day));
+      inflight.set(day, pending);
+    }
+    rates = await pending;
     if (day === today) todayMemo.set(day, { at: Date.now(), rates });
   } catch (e) {
     console.error("fxRate", currency, day, e);

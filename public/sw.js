@@ -1,7 +1,10 @@
 /* AIO service worker: app-shell caching, offline fallback, web push. */
-const VERSION = "aio-v1";
+// Bump VERSION whenever caching behaviour changes: activate() then drops every older cache.
+const VERSION = "aio-v2";
 const STATIC = `${VERSION}-static`;
 const PAGES = `${VERSION}-pages`;
+// How long a page navigation may wait for the network before falling back to a cached copy.
+const NAV_TIMEOUT_MS = 8000;
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -18,21 +21,40 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+/** Rejects after `ms` so a stalled request can't keep the page spinning forever. */
+function withTimeout(promise, ms) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("timeout")), ms);
+    promise.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      },
+    );
+  });
+}
+
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin || url.pathname.startsWith("/api/")) return;
 
-  // immutable build assets: cache first
+  // immutable build assets: cache first, but only ever store successful responses
   if (url.pathname.startsWith("/_next/static/") || /\.(png|svg|woff2?|ico)$/.test(url.pathname)) {
     event.respondWith(
       caches.match(req).then(
         (hit) =>
           hit ||
           fetch(req).then((res) => {
-            const copy = res.clone();
-            caches.open(STATIC).then((c) => c.put(req, copy));
+            if (res.ok) {
+              const copy = res.clone();
+              caches.open(STATIC).then((c) => c.put(req, copy));
+            }
             return res;
           }),
       ),
@@ -40,18 +62,24 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // pages: network first, fall back to last cached copy, then offline page
+  // pages: network first (with a timeout), fall back to last cached copy, then offline page
   if (req.mode === "navigate") {
+    const network = fetch(req).then((res) => {
+      if (res.ok) {
+        const copy = res.clone();
+        caches.open(PAGES).then((c) => c.put(req, copy));
+      }
+      return res;
+    });
     event.respondWith(
-      fetch(req)
-        .then((res) => {
-          if (res.ok) {
-            const copy = res.clone();
-            caches.open(PAGES).then((c) => c.put(req, copy));
-          }
-          return res;
-        })
-        .catch(() => caches.match(req).then((hit) => hit || caches.match("/offline"))),
+      withTimeout(network, NAV_TIMEOUT_MS).catch(() =>
+        caches.match(req).then(
+          (hit) =>
+            hit ||
+            // nothing cached: give the network a little longer, then show the offline page
+            withTimeout(network, NAV_TIMEOUT_MS).catch(() => caches.match("/offline")),
+        ),
+      ),
     );
   }
 });

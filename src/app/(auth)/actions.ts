@@ -13,7 +13,8 @@ import { supabaseConfigured, supabaseServer } from "@/lib/supabase";
 const TERMS_VERSION = "1.0";
 const PRIVACY_VERSION = "1.0";
 
-export type AuthState = { error?: string; info?: string } | undefined;
+/** `redirectTo`: signed in – the form then does a full page load there (fresh cookies, no stuck soft navigation). */
+export type AuthState = { error?: string; info?: string; redirectTo?: string } | undefined;
 
 const email = z.string().trim().toLowerCase().email("Neplatný e-mail");
 const password = z.string().min(8, "Heslo musí mít alespoň 8 znaků").max(200);
@@ -62,7 +63,7 @@ export async function login(_: AuthState, form: FormData): Promise<AuthState> {
     await supabase.auth.signOut();
     return { error: "Registrace nových účtů jsou uzavřené." };
   }
-  redirect(safeNext(form.get("next")));
+  return { redirectTo: safeNext(form.get("next")) };
 }
 
 export async function register(_: AuthState, form: FormData): Promise<AuthState> {
@@ -93,7 +94,7 @@ export async function register(_: AuthState, form: FormData): Promise<AuthState>
   // e-mail confirmation turned off in Supabase → signed in right away
   if (data.session && data.user?.email) {
     await ensureAppUser(data.user.email, parsed.data.name);
-    redirect("/");
+    return { redirectTo: "/" };
   }
   return { info: `Poslali jsme potvrzovací e-mail na ${parsed.data.email}. Klikni na odkaz v něm a jsi přihlášený.` };
 }
@@ -119,7 +120,7 @@ export async function resetPassword(_: AuthState, form: FormData): Promise<AuthS
   const supabase = await supabaseServer();
   const { error } = await supabase.auth.updateUser({ password: parsed.data });
   if (error) return { error: authError(error.message, error.code) };
-  redirect("/");
+  return { redirectTo: "/" };
 }
 
 export async function logout() {
