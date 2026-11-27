@@ -5,6 +5,7 @@ import { requireUser } from "@/lib/auth";
 import { listPrograms, listProgramTemplates } from "@/lib/workout/service";
 import { cloneTemplateAction, createProgramAction } from "../actions";
 import { ActionForm } from "../_components/action-form";
+import { ImportPlan } from "./import-plan";
 
 export default async function ProgramsPage() {
   const user = await requireUser();
@@ -42,6 +43,9 @@ export default async function ProgramsPage() {
           <SubmitButton>Vytvořit</SubmitButton>
         </ActionForm>
       </Card>
+
+      <SectionTitle>Nahrát stávající plán</SectionTitle>
+      <ImportPlan />
 
       <SectionTitle>Šablony</SectionTitle>
       <div className="grid gap-3 md:grid-cols-3">
