@@ -225,12 +225,12 @@ export async function logBodyMetricAction(_: ActionResult | undefined, form: For
         ...(waistCm != null ? { waistCm } : {}),
       });
     },
-    ["/workout/body", "/workout", "/"],
+    ["/workout/body", "/workout", "/goals", "/"],
   );
 }
 
 export async function clearBodyMetricAction(date: string) {
-  return run((uid) => svc.clearBodyMetric(uid, z.string().regex(/^\d{4}-\d{2}-\d{2}$/).parse(date)), ["/workout/body"]);
+  return run((uid) => svc.clearBodyMetric(uid, z.string().regex(/^\d{4}-\d{2}-\d{2}$/).parse(date)), ["/workout/body", "/goals", "/"]);
 }
 
 /* ── This week's schedule (one-week moves) ── */

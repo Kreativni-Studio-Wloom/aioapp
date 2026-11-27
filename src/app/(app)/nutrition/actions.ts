@@ -16,6 +16,7 @@ const zPos = zNum.min(0).max(100000);
 
 function revalidate() {
   revalidatePath("/nutrition", "layout");
+  revalidatePath("/goals");
   revalidatePath("/");
 }
 

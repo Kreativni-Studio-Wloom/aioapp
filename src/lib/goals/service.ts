@@ -2,7 +2,7 @@
  * Cross-module goals ("100 kg bench by June", "500k from Matcha this year", "78 kg body weight").
  * The current value is always computed live from the module data, never stored.
  */
-import { and, asc, desc, eq, gte, isNotNull } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNotNull, lte } from "drizzle-orm";
 import { db, t } from "@/db";
 import { isoDate } from "@/lib/format";
 import { getExerciseHistory, getLatestWeight, getExercise } from "@/lib/workout/service";
@@ -69,20 +69,23 @@ async function currentValue(userId: string, m: GoalMetric, createdAt: Date): Pro
   switch (m.kind) {
     case "body_weight": {
       const latest = await getLatestWeight(userId);
-      const [first] = await db
-        .select({ w: t.bodyMetrics.weightKg })
-        .from(t.bodyMetrics)
-        .where(and(eq(t.bodyMetrics.userId, userId), isNotNull(t.bodyMetrics.weightKg), gte(t.bodyMetrics.date, isoDate(createdAt))))
-        .orderBy(asc(t.bodyMetrics.date))
-        .limit(1);
-      const [before] = first
-        ? [first]
-        : await db
-            .select({ w: t.bodyMetrics.weightKg })
-            .from(t.bodyMetrics)
-            .where(and(eq(t.bodyMetrics.userId, userId), isNotNull(t.bodyMetrics.weightKg)))
-            .orderBy(desc(t.bodyMetrics.date))
-            .limit(1);
+      // Baseline = the last weigh-in on/before the day the goal was set; if there was none yet,
+      // the first one after. Kept stable so new weigh-ins move progress instead of the start.
+      const created = isoDate(createdAt);
+      const base = (order: "before" | "after") =>
+        db
+          .select({ w: t.bodyMetrics.weightKg })
+          .from(t.bodyMetrics)
+          .where(
+            and(
+              eq(t.bodyMetrics.userId, userId),
+              isNotNull(t.bodyMetrics.weightKg),
+              order === "before" ? lte(t.bodyMetrics.date, created) : gt(t.bodyMetrics.date, created),
+            ),
+          )
+          .orderBy(order === "before" ? desc(t.bodyMetrics.date) : asc(t.bodyMetrics.date))
+          .limit(1);
+      const [before] = await base("before").then((r) => (r.length ? r : base("after")));
       return { current: latest?.weightKg ?? null, start: before?.w ?? null, href: "/workout/body" };
     }
     case "exercise_1rm": {

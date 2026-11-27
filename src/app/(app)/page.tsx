@@ -252,7 +252,10 @@ export default async function Home() {
               <div key={goal.id} data-private={goal.unit === "CZK" || undefined}>
                 <div className="mb-1 flex justify-between gap-3 text-sm">
                   <span className="truncate">{goal.title}</span>
-                  <span className="num shrink-0 text-muted">{Math.round(goal.progress * 100)} %</span>
+                  <span className="num shrink-0 text-muted">
+                    {goal.current != null && (goal.unit === "kg" ? `${num(goal.current, 1)} kg · ` : `${money(goal.current)} · `)}
+                    {Math.round(goal.progress * 100)} %
+                  </span>
                 </div>
                 <ProgressBar value={goal.progress} max={1} />
               </div>
