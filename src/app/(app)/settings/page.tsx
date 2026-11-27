@@ -4,9 +4,9 @@ import { db, t } from "@/db";
 import { requireUser } from "@/lib/auth";
 import { Card, PageHeader, SectionTitle, Row, LinkButton } from "@/components/ui";
 import { dateLabel } from "@/lib/format";
-import { aiEnabled } from "@/lib/ai";
+import { aiModel, availableProviders, currentProvider, PROVIDER_LABEL } from "@/lib/ai";
 import { logout } from "../../(auth)/actions";
-import { AccountForm, PasswordForm, ThemeSwitch, ApiKeys, PushToggle, SignOutOthers, InstallHelp, DeleteAccount } from "./client";
+import { AccountForm, PasswordForm, ThemeSwitch, AiProviderSwitch, ApiKeys, PushToggle, SignOutOthers, InstallHelp, DeleteAccount } from "./client";
 import { LegalLinks } from "@/components/legal-links";
 
 export const metadata = { title: "Nastavení" };
@@ -19,6 +19,8 @@ export default async function SettingsPage() {
     .from(t.apiKeys)
     .where(eq(t.apiKeys.userId, user.id))
     .orderBy(desc(t.apiKeys.createdAt));
+  const providers = availableProviders();
+  const provider = await currentProvider();
   const theme = (await cookies()).get("theme")?.value === "light" ? "light" : "dark";
 
   return (
@@ -59,12 +61,21 @@ export default async function SettingsPage() {
 
       <SectionTitle>AI</SectionTitle>
       <Card>
-        <Row className="py-0">
+        <Row className="flex-wrap gap-3 py-0">
           <div>
-            <div className="font-medium">Claude API</div>
-            <div className="text-sm text-muted">{aiEnabled() ? "Připojeno – AI trenér, rozpoznání jídla a asistent fungují." : "Chybí ANTHROPIC_API_KEY v prostředí serveru."}</div>
+            <div className="font-medium">Poskytovatel AI</div>
+            <div className="text-sm text-muted">
+              {provider
+                ? `${PROVIDER_LABEL[provider]} · ${aiModel(provider)} – AI trenér, rozpoznání jídla, import plánů a asistent.`
+                : "Chybí ANTHROPIC_API_KEY nebo OPENAI_API_KEY v prostředí serveru."}
+            </div>
+            {provider && providers.length < 2 && (
+              <div className="mt-1 text-xs text-muted">
+                Pro přepínání doplň i {provider === "anthropic" ? "OPENAI_API_KEY" : "ANTHROPIC_API_KEY"} do prostředí serveru.
+              </div>
+            )}
           </div>
-          <span className={aiEnabled() ? "text-pos text-sm" : "text-muted text-sm"}>{aiEnabled() ? "Aktivní" : "Vypnuto"}</span>
+          {provider ? <AiProviderSwitch provider={provider} available={providers} /> : <span className="text-muted text-sm">Vypnuto</span>}
         </Row>
       </Card>
 

@@ -5,9 +5,9 @@
 import { readFileSync, writeFileSync } from "node:fs";
 
 const DOCS = {
-  podminky: { file: "podminky-uzivani", title: "Podmínky užívání", versions: [{ v: "1.0", from: "2026-11-27" }] },
-  soukromi: { file: "zasady-ochrany-osobnich-udaju", title: "Zásady ochrany osobních údajů", versions: [{ v: "1.0", from: "2026-11-27" }] },
-  cookies: { file: "zasady-cookies", title: "Zásady cookies", versions: [{ v: "1.0", from: "2026-11-27" }] },
+  podminky: { file: "podminky-uzivani", title: "Podmínky užívání", versions: [{ v: "1.0", from: "2026-11-27" }, { v: "1.1", from: "2026-11-27" }] },
+  soukromi: { file: "zasady-ochrany-osobnich-udaju", title: "Zásady ochrany osobních údajů", versions: [{ v: "1.0", from: "2026-11-27" }, { v: "1.1", from: "2026-11-27" }] },
+  cookies: { file: "zasady-cookies", title: "Zásady cookies", versions: [{ v: "1.0", from: "2026-11-27" }, { v: "1.1", from: "2026-11-27" }] },
 };
 
 const out = {};

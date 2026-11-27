@@ -392,14 +392,14 @@ function AiOff() {
     <div className="rounded-2xl border border-dashed border-line-strong px-5 py-8 text-center">
       <div className="font-medium">AI není nastavená</div>
       <p className="mt-1 text-sm text-muted">
-        Pro odhad z fotky nebo textu doplň <span className="font-mono text-xs">ANTHROPIC_API_KEY</span> do prostředí serveru. Mezitím použij hledání, sken EAN nebo rychlý zápis.
+        Pro odhad z fotky nebo textu doplň <span className="font-mono text-xs">ANTHROPIC_API_KEY</span> nebo <span className="font-mono text-xs">OPENAI_API_KEY</span> do prostředí serveru. Mezitím použij hledání, sken EAN nebo rychlý zápis.
       </p>
     </div>
   );
 }
 
 function aiError(err: string) {
-  return err === "AI_DISABLED" ? "AI není nastavená – doplň ANTHROPIC_API_KEY do prostředí." : err;
+  return err === "AI_DISABLED" ? "AI není nastavená – doplň ANTHROPIC_API_KEY nebo OPENAI_API_KEY do prostředí." : err;
 }
 
 /** Downscale an image file to max `max` px on the long side, JPEG data URL. */
@@ -623,7 +623,7 @@ function ReviewStep({
 
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-sm text-muted">Odhad vytvořila umělá inteligence (Claude) a může být nepřesný. Zkontroluj ho a uprav; změna gramáže přepočítá hodnoty.</p>
+      <p className="text-sm text-muted">Odhad vytvořila umělá inteligence (Claude nebo ChatGPT) a může být nepřesný. Zkontroluj ho a uprav; změna gramáže přepočítá hodnoty.</p>
       <AnimatePresence initial={false}>
         {rows.map((r) => (
           <motion.div

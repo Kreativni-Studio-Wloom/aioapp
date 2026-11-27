@@ -3,8 +3,9 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db, t } from "@/db";
 import { getUser } from "@/lib/auth";
-import { AI_MODEL, aiEnabled, anthropic, imageBlock } from "@/lib/ai";
-import { anthropicTools, handleToolUse, loadHistory, saveMessage, systemPrompt, type ProposedAction } from "@/lib/assistant";
+import { AiDisabledError, aiModel, anthropic, currentProvider, imageBlock } from "@/lib/ai";
+import { openaiChatStep } from "@/lib/ai-openai";
+import { anthropicTools, openaiTools, handleToolUse, loadHistory, saveMessage, systemPrompt, type ProposedAction } from "@/lib/assistant";
 
 export const maxDuration = 300;
 
@@ -28,7 +29,8 @@ const MAX_STEPS = 10;
 export async function POST(req: Request) {
   const user = await getUser();
   if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
-  if (!aiEnabled()) return Response.json({ error: "AI není nastavená – doplň ANTHROPIC_API_KEY." }, { status: 400 });
+  const provider = await currentProvider();
+  if (!provider) return Response.json({ error: new AiDisabledError().message }, { status: 400 });
 
   const parsed = Body.safeParse(await req.json());
   if (!parsed.success) return Response.json({ error: "Neplatný požadavek" }, { status: 400 });
@@ -61,34 +63,55 @@ export async function POST(req: Request) {
       send({ type: "conversation", id: convId });
       try {
         for (let step = 0; step < MAX_STEPS; step++) {
-          const s = anthropic().beta.messages.stream(
-            {
-              model: AI_MODEL,
-              max_tokens: 32000,
+          let toolUses: { id: string; name: string; input: unknown }[];
+          if (provider === "openai") {
+            const r = await openaiChatStep({
               system: systemPrompt(module),
-              tools: anthropicTools(),
               messages,
-              output_config: { effort: "medium" },
-              cache_control: { type: "ephemeral" },
-              betas: ["server-side-fallback-2026-07-01"],
-              fallbacks: "default",
-            },
-            { signal: req.signal },
-          );
-          s.on("text", (delta) => send({ type: "text", text: delta }));
-          const final = await s.finalMessage();
+              tools: openaiTools(),
+              onText: (text) => send({ type: "text", text }),
+              signal: req.signal,
+            });
+            if (r.content.length) {
+              messages.push({ role: "assistant", content: r.content });
+              await saveMessage(convId, "assistant", r.content);
+            }
+            if (r.refused) {
+              send({ type: "error", message: "Asistent tento požadavek odmítl." });
+              break;
+            }
+            toolUses = r.toolUses;
+            if (!toolUses.length) break;
+          } else {
+            const s = anthropic().beta.messages.stream(
+              {
+                model: aiModel("anthropic"),
+                max_tokens: 32000,
+                system: systemPrompt(module),
+                tools: anthropicTools(),
+                messages,
+                output_config: { effort: "medium" },
+                cache_control: { type: "ephemeral" },
+                betas: ["server-side-fallback-2026-07-01"],
+                fallbacks: "default",
+              },
+              { signal: req.signal },
+            );
+            s.on("text", (delta) => send({ type: "text", text: delta }));
+            const final = await s.finalMessage();
 
-          messages.push({ role: "assistant", content: final.content as Anthropic.Beta.BetaContentBlockParam[] });
-          await saveMessage(convId, "assistant", final.content);
+            messages.push({ role: "assistant", content: final.content as Anthropic.Beta.BetaContentBlockParam[] });
+            await saveMessage(convId, "assistant", final.content);
 
-          if (final.stop_reason === "refusal") {
-            send({ type: "error", message: "Asistent tento požadavek odmítl." });
-            break;
+            if (final.stop_reason === "refusal") {
+              send({ type: "error", message: "Asistent tento požadavek odmítl." });
+              break;
+            }
+            if (final.stop_reason === "pause_turn") continue;
+            if (final.stop_reason !== "tool_use") break;
+            toolUses = final.content.filter((b): b is Anthropic.Beta.BetaToolUseBlock => b.type === "tool_use");
           }
-          if (final.stop_reason === "pause_turn") continue;
-          if (final.stop_reason !== "tool_use") break;
 
-          const toolUses = final.content.filter((b): b is Anthropic.Beta.BetaToolUseBlock => b.type === "tool_use");
           const results = await Promise.all(
             toolUses.map(async (b) => {
               send({ type: "tool", name: b.name });

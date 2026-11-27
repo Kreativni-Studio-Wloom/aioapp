@@ -8,11 +8,20 @@ import { and, eq, sql } from "drizzle-orm";
 import { db, t } from "@/db";
 import { requireUser, sha256 } from "@/lib/auth";
 import { supabaseServer } from "@/lib/supabase";
+import { AI_PROVIDERS, AI_PROVIDER_COOKIE, providerConfigured, type AiProvider } from "@/lib/ai";
 import { str, toNum, type ActionResult } from "@/lib/utils";
 
 export async function setTheme(theme: "dark" | "light") {
   (await cookies()).set("theme", theme, { path: "/", maxAge: 60 * 60 * 24 * 400, sameSite: "lax" });
   revalidatePath("/", "layout");
+}
+
+export async function setAiProvider(provider: AiProvider) {
+  await requireUser();
+  if (!AI_PROVIDERS.includes(provider) || !providerConfigured(provider)) return { ok: false as const, error: "Tento poskytovatel není na serveru nastavený." };
+  (await cookies()).set(AI_PROVIDER_COOKIE, provider, { path: "/", maxAge: 60 * 60 * 24 * 400, sameSite: "lax", httpOnly: true });
+  revalidatePath("/settings");
+  return { ok: true as const };
 }
 
 export async function updateAccount(_: ActionResult | undefined, form: FormData): Promise<ActionResult> {

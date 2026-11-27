@@ -10,8 +10,8 @@ import { appOrigin } from "@/lib/env";
 import { supabaseConfigured, supabaseServer } from "@/lib/supabase";
 
 // bump together with a new version in scripts/build-legal.mjs
-const TERMS_VERSION = "1.0";
-const PRIVACY_VERSION = "1.0";
+const TERMS_VERSION = "1.1";
+const PRIVACY_VERSION = "1.1";
 
 /** `redirectTo`: signed in – the form then does a full page load there (fresh cookies, no stuck soft navigation). */
 export type AuthState = { error?: string; info?: string; redirectTo?: string } | undefined;

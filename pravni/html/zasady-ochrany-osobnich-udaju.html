@@ -1,13 +1,13 @@
 <nav class="legal-toc" aria-label="Obsah"><ol><li><a href="#ve-zkratce">Ve zkratce</a></li><li><a href="#1-kdo-je-spravce-a-jak-nas-kontaktovat">1. Kdo je správce a jak nás kontaktovat</a></li><li><a href="#2-pro-jake-ucely-a-na-jakem-zaklade-udaje-zpracovavame">2. Pro jaké účely a na jakém základě údaje zpracováváme</a></li><li><a href="#3-opravneny-zajem">3. Oprávněný zájem</a></li><li><a href="#4-odkud-udaje-ziskavame">4. Odkud údaje získáváme</a></li><li><a href="#5-komu-udaje-predavame">5. Komu údaje předáváme</a></li><li><a href="#6-predavani-mimo-eu">6. Předávání mimo EU</a></li><li><a href="#7-automatizovane-rozhodovani-a-profilovani">7. Automatizované rozhodování a profilování</a></li><li><a href="#8-vase-prava">8. Vaše práva</a></li><li><a href="#9-zabezpeceni">9. Zabezpečení</a></li><li><a href="#10-smazani-uctu">10. Smazání účtu</a></li><li><a href="#11-zmeny-techto-zasad">11. Změny těchto zásad</a></li></ol></nav>
 <h1 id="zasady-ochrany-osobnich-udaju">Zásady ochrany osobních údajů</h1>
-<p><strong>Účinné od:</strong> 27. 11. 2026 · <strong>Verze:</strong> 1.0 · <a href="/pravni/archiv">Archiv verzí</a></p>
+<p><strong>Účinné od:</strong> 27. 11. 2026 · <strong>Verze:</strong> 1.1 · <a href="/pravni/archiv">Archiv verzí</a></p>
 <h2 id="ve-zkratce">Ve zkratce</h2>
 <ul>
 <li>Aplikaci AIO provozuje Adam Grigar jako bezplatný osobní projekt. Kontakt: <strong>grigar.adam@gmail.com</strong>.</li>
 <li>Zpracováváme jen to, co do aplikace sami zapíšete, a údaje nutné k přihlášení. Data vidíte jen vy.</li>
 <li>Část údajů vypovídá o vašem zdraví (váha, jídlo, trénink) – zpracováváme je jen s vaším výslovným souhlasem.</li>
 <li>Nepoužíváme analytiku, reklamu ani sledovací cookies. Údaje neprodáváme a nepoužíváme k trénování AI.</li>
-<li>Data jsou uložena v EU (Frankfurt). AI funkce posílají potřebná data společnosti Anthropic (USA), jen když je použijete.</li>
+<li>Data jsou uložena v EU (Frankfurt). AI funkce posílají potřebná data poskytovateli AI – společnosti Anthropic, nebo OpenAI, pokud ji zvolíte v Nastavení (obě USA) – jen když je použijete.</li>
 <li>Všechna data si můžete kdykoli stáhnout a účet jedním krokem smazat v Nastavení.</li>
 </ul>
 <h2 id="1-kdo-je-spravce-a-jak-nas-kontaktovat">1. Kdo je správce a jak nás kontaktovat</h2>
@@ -38,11 +38,12 @@
 <li><strong>Doba:</strong> po dobu existence účtu; jednotlivé záznamy můžete kdykoli smazat.</li>
 <li>Aplikace se nepřipojuje k vašemu bankovnímu ani brokerskému účtu. Ceny aktiv získáváme z veřejných zdrojů podle tickeru, bez jakékoli vaší identifikace.</li>
 </ul>
-<h3 id="2-4-rozpoznani-jidla-z-fotky-nebo-textu-a-ai-asistent">2.4 Rozpoznání jídla z fotky nebo textu a AI asistent</h3>
+<h3 id="2-4-rozpoznani-jidla-z-fotky-nebo-textu-import-treninkoveho-">2.4 Rozpoznání jídla z fotky nebo textu, import tréninkového plánu a AI asistent</h3>
 <ul>
-<li><strong>Údaje:</strong> fotka jídla nebo textový popis; u AI asistenta obsah konverzace a data z vašich modulů, která asistent potřebuje k odpovědi (např. poslední tréninky, dnešní jídla, přehled příjmů).</li>
+<li><strong>Údaje:</strong> fotka jídla nebo textový popis; soubory s tréninkovým plánem, které nahrajete k importu; u AI asistenta obsah konverzace a data z vašich modulů, která asistent potřebuje k odpovědi (např. poslední tréninky, dnešní jídla, přehled příjmů).</li>
 <li><strong>Právní základ:</strong> plnění smlouvy (čl. 6 odst. 1 písm. b) GDPR) – funkci spustíte sami; u údajů o zdraví váš výslovný souhlas podle čl. 2.2.</li>
-<li><strong>Doba:</strong> fotky jídla <strong>neukládáme</strong> – po zpracování se zahodí, uloží se jen rozpoznané hodnoty, které potvrdíte. Konverzace s AI asistentem ukládáme ve vašem účtu, dokud je nesmažete nebo nezrušíte účet. Společnost Anthropic podle svých podmínek pro API uchovává vstupy a výstupy nejvýše 30 dní k zajištění bezpečnosti a nepoužívá je k trénování modelů.</li>
+<li><strong>Doba:</strong> fotky jídla <strong>neukládáme</strong> – po zpracování se zahodí, uloží se jen rozpoznané hodnoty, které potvrdíte. Konverzace s AI asistentem ukládáme ve vašem účtu, dokud je nesmažete nebo nezrušíte účet. Soubory pro import plánu neukládáme, uloží se jen vytvořený program.</li>
+<li><strong>Poskytovatel AI:</strong> výchozí je Claude od společnosti Anthropic; v Nastavení → AI můžete přepnout na ChatGPT od společnosti OpenAI. Data dostane vždy jen ten poskytovatel, kterého máte zvoleného v okamžiku použití funkce. Anthropic i OpenAI podle svých podmínek pro API uchovávají vstupy a výstupy nejvýše 30 dní k zajištění bezpečnosti a nepoužívají je k trénování modelů.</li>
 <li>Vždy je označeno, že komunikujete s AI. AI asistent nemůže sám nic změnit – každou navrženou změnu vašich dat musíte schválit.</li>
 </ul>
 <h3 id="2-5-integrace-api-a-pripojene-aplikace">2.5 Integrace, API a připojené aplikace</h3>
@@ -81,11 +82,12 @@
 <tr><td>Supabase Inc.</td><td>databáze, přihlašování, e-maily k účtu</td><td>servery v EU (Frankfurt, Německo); společnost se sídlem v USA</td></tr>
 <tr><td>Vercel Inc.</td><td>hosting aplikace</td><td>servery v EU (Frankfurt, Německo); společnost se sídlem v USA</td></tr>
 <tr><td>Anthropic PBC</td><td>AI funkce (Claude) – jen když je použijete</td><td>USA</td></tr>
+<tr><td>OpenAI Ireland Ltd. / OpenAI, L.L.C.</td><td>AI funkce (ChatGPT) – jen když ji zvolíte v Nastavení a AI funkci použijete</td><td>USA</td></tr>
 </tbody></table>
 <p>Dále předáváme jen data, která nejsou spojena s vaší osobou: čárový kód (EAN) nebo hledaný název potraviny databázi <strong>Open Food Facts</strong> a tickery aktiv službám <strong>Yahoo Finance</strong> a <strong>CoinGecko</strong> pro zjištění cen. Notifikace doručuje push služba vašeho prohlížeče (Apple, Google nebo Mozilla).</p>
 <p>Údaje můžeme poskytnout orgánům veřejné moci, pokud nám to ukládá zákon.</p>
 <h2 id="6-predavani-mimo-eu">6. Předávání mimo EU</h2>
-<p>Data aplikace jsou uložena na serverech v EU. Supabase a Vercel jsou společnosti se sídlem v USA a k datům mohou mít přístup při správě služby; Anthropic zpracovává data v USA. Předání probíhá na základě rozhodnutí Evropské komise o odpovídající ochraně pro certifikované společnosti (<strong>EU-US Data Privacy Framework</strong>), nebo na základě <strong>standardních smluvních doložek</strong> schválených Komisí, které jsou součástí smluv o zpracování těchto poskytovatelů. Kopii záruk vám na požádání poskytneme.</p>
+<p>Data aplikace jsou uložena na serverech v EU. Supabase a Vercel jsou společnosti se sídlem v USA a k datům mohou mít přístup při správě služby; Anthropic a OpenAI zpracovávají data v USA. Předání probíhá na základě rozhodnutí Evropské komise o odpovídající ochraně pro certifikované společnosti (<strong>EU-US Data Privacy Framework</strong>), nebo na základě <strong>standardních smluvních doložek</strong> schválených Komisí, které jsou součástí smluv o zpracování těchto poskytovatelů. Kopii záruk vám na požádání poskytneme.</p>
 <h2 id="7-automatizovane-rozhodovani-a-profilovani">7. Automatizované rozhodování a profilování</h2>
 <p>Nepřijímáme rozhodnutí založená výhradně na automatizovaném zpracování, která by pro vás měla právní účinky nebo se vás obdobně významně dotýkala. Aplikace z vašich údajů automaticky počítá doporučení (např. kalorický cíl, upozornění na stagnaci, přehledy příjmů); jsou jen informativní a sami rozhodujete, zda se jimi řídíte.</p>
 <h2 id="8-vase-prava">8. Vaše práva</h2>

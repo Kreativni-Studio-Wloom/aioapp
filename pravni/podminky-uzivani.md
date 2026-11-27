@@ -1,6 +1,6 @@
 # Podmínky užívání aplikace AIO
 
-**Účinné od:** 27. 11. 2026 · **Verze:** 1.0 · [Archiv verzí](/pravni/archiv)
+**Účinné od:** 27. 11. 2026 · **Verze:** 1.1 · [Archiv verzí](/pravni/archiv)
 
 ## 1. Úvodní ustanovení
 
@@ -58,7 +58,7 @@
 
 6.1 Výpočty kalorií a živin, odhady 1RM, upozornění na stagnaci, doporučení tréninku, ceny aktiv, směnné kurzy a přehledy příjmů jsou **informativní**. Nejsou lékařskou, výživovou, daňovou ani investiční radou. Při zdravotních potížích, těhotenství, poruchách příjmu potravy nebo před výraznou změnou stravy či zátěže se poraďte s lékařem.
 
-6.2 **Umělá inteligence.** Asistent v sekci *AI asistent* a rozpoznání jídla z fotky nebo textu využívají model Claude od společnosti Anthropic. V rozhraní je vždy označeno, že komunikujete s AI. Výstupy AI mohou obsahovat chyby; hodnoty z fotky nebo textu před uložením zkontrolujte. Změny ve vašich datech (například úpravu tréninkového plánu) provede AI asistent až po vašem schválení.
+6.2 **Umělá inteligence.** Asistent v sekci *AI asistent*, rozpoznání jídla z fotky nebo textu a import tréninkového plánu ze souboru využívají model Claude od společnosti Anthropic, nebo model ChatGPT od společnosti OpenAI, pokud ho zvolíte v Nastavení → AI. V rozhraní je vždy označeno, že komunikujete s AI. Výstupy AI mohou obsahovat chyby; hodnoty z fotky nebo textu před uložením zkontrolujte. Změny ve vašich datech (například úpravu tréninkového plánu) provede AI asistent až po vašem schválení.
 
 6.3 Ceny aktiv přebíráme z veřejných zdrojů (Yahoo Finance, CoinGecko) a kurzy z ČNB; mohou být zpožděné nebo nepřesné.
 

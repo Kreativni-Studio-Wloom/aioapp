@@ -31,7 +31,7 @@ Zdroj pravdy pro právní dokumenty. Každý fakt má zdroj. Stav k 27. 11. 2026
 | Trénink | programy, tréninky, série (váha, opakování, RPE), poznámky | `src/lib/workout/service.ts` |
 | Tělo | tělesná váha, % tuku, obvod pasu | `schema.ts` `body_metrics` |
 | Výživa | věk, pohlaví, výška, váha, aktivita, cíl, snědená jídla, voda | `src/lib/nutrition/**` |
-| Fotka / text jídla | fotka (zmenšená, **neukládá se**), text → Claude API | `src/lib/nutrition/estimate.ts`, `add-sheet.tsx` |
+| Fotka / text jídla | fotka (zmenšená, **neukládá se**), text → Claude API nebo OpenAI API (podle volby v Nastavení, cookie `ai_provider`) | `src/lib/nutrition/estimate.ts`, `add-sheet.tsx` |
 | EAN sken | kamera v prohlížeči (lokálně), EAN kód → Open Food Facts | `scanner.tsx`, `src/lib/nutrition/off.ts` |
 | Příjmy | zdroje, eventy, transakce, částky, měny, poznámky | `src/lib/income/**` |
 | Portfolio | aktiva, transakce, závazky, čisté jmění | `src/lib/portfolio/**` |
@@ -51,6 +51,7 @@ Zvláštní kategorie (čl. 9 GDPR): **údaje o zdraví** – tělesná váha, s
 | Supabase Inc. | zpracovatel – databáze a přihlašování | všechna data účtu | servery EU (Frankfurt, `aws-0-eu-central-1`); společnost v USA → SCC |
 | Vercel Inc. | zpracovatel – hosting aplikace | požadavky, IP adresy v logu | region `fra1` (Frankfurt), společnost USA → DPF |
 | Anthropic PBC | zpracovatel – AI (Claude API) | jen při použití AI: zpráva, fotka jídla, data potřebná k odpovědi | USA → SCC; vstupy netrénuje (obchodní podmínky API) |
+| OpenAI Ireland Ltd. / OpenAI, L.L.C. | zpracovatel – AI (OpenAI API), jen když ji uživatel zvolí v Nastavení | totéž co Anthropic | USA → DPF/SCC; API vstupy netrénuje, `store: false` |
 | Apple / Google / Mozilla push služby | doručení notifikace | obsah notifikace přes endpoint | dle prohlížeče, USA |
 | Open Food Facts | samostatný subjekt | jen EAN kód / hledaný text, bez identifikace uživatele | Francie |
 | Yahoo Finance, CoinGecko | zdroj cen | jen tickery, bez identifikace uživatele | USA / Singapur |

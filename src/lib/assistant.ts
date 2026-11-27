@@ -1,4 +1,5 @@
 import type Anthropic from "@anthropic-ai/sdk";
+import type OpenAI from "openai";
 import { and, asc, eq } from "drizzle-orm";
 import { db, t } from "@/db";
 import { isoDate } from "@/lib/format";
@@ -39,6 +40,16 @@ export function anthropicTools(): Anthropic.Beta.BetaToolUnion[] {
     description: d.description + (d.write ? " (Creates a proposal the user must approve.)" : ""),
     input_schema: jsonSchema(d),
     eager_input_streaming: true,
+  }));
+}
+
+export function openaiTools(): OpenAI.Responses.FunctionTool[] {
+  return TOOLS.map((d) => ({
+    type: "function" as const,
+    name: d.name,
+    description: d.description + (d.write ? " (Creates a proposal the user must approve.)" : ""),
+    parameters: jsonSchema(d) as Record<string, unknown>,
+    strict: false,
   }));
 }
 

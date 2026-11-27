@@ -12,7 +12,9 @@ import { Check, Copy, Trash2 } from "lucide-react";
 import { Button, Field, Input, Row } from "@/components/ui";
 import { Segmented, SubmitButton, ConfirmButton } from "@/components/ui/client";
 import type { ActionResult } from "@/lib/utils";
+import type { AiProvider } from "@/lib/ai";
 import {
+  setAiProvider,
   setTheme,
   updateAccount,
   changePassword,
@@ -95,6 +97,38 @@ export function ThemeSwitch({ theme }: { theme: "dark" | "light" }) {
         { value: "light", label: "Světlý" },
       ]}
     />
+  );
+}
+
+export function AiProviderSwitch({ provider, available }: { provider: AiProvider; available: AiProvider[] }) {
+  const [value, setValue] = useState(provider);
+  const [error, setError] = useState<string | null>(null);
+  const [, start] = useTransition();
+  const options = [
+    { value: "anthropic" as const, label: "Claude" },
+    { value: "openai" as const, label: "ChatGPT" },
+  ].filter((o) => available.includes(o.value));
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <Segmented
+        layoutId="ai-provider"
+        value={value}
+        onChange={(v) => {
+          const prev = value;
+          setValue(v);
+          setError(null);
+          start(async () => {
+            const r = await setAiProvider(v);
+            if (!r.ok) {
+              setValue(prev);
+              setError(r.error);
+            }
+          });
+        }}
+        options={options}
+      />
+      {error && <span className="text-xs text-neg">{error}</span>}
+    </div>
   );
 }
 

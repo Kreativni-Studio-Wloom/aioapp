@@ -306,7 +306,7 @@ export function Chat(props: {
 
       {!props.enabled && (
         <div className="mb-4 rounded-2xl border border-dashed border-line-strong p-4 text-sm text-muted">
-          AI zatím není zapnutá. Doplň <code className="text-fg-soft">ANTHROPIC_API_KEY</code> do proměnných prostředí serveru (lokálně <code>.env.local</code>, na Vercelu v Settings → Environment Variables).
+          AI zatím není zapnutá. Doplň <code className="text-fg-soft">ANTHROPIC_API_KEY</code> nebo <code className="text-fg-soft">OPENAI_API_KEY</code> do proměnných prostředí serveru (lokálně <code>.env.local</code>, na Vercelu v Settings → Environment Variables).
         </div>
       )}
 
@@ -433,7 +433,7 @@ export function Chat(props: {
           )}
         </form>
         <p className="mt-1.5 text-center text-[11px] text-subtle">
-          Odpovídá umělá inteligence (Claude od Anthropic) a může se mýlit. Změny dat provede až po tvém schválení.
+          Odpovídá umělá inteligence (Claude od Anthropic nebo ChatGPT od OpenAI – podle Nastavení) a může se mýlit. Změny dat provede až po tvém schválení.
         </p>
       </div>
 
