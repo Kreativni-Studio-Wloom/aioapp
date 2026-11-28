@@ -72,7 +72,7 @@ export const Select = forwardRef<HTMLSelectElement, ComponentProps<"select">>(fu
 
 export function Field({ label, hint, children, className }: { label: string; hint?: ReactNode; children: ReactNode; className?: string }) {
   return (
-    <label className={cn("flex flex-col gap-1.5", className)}>
+    <label className={cn("flex min-w-0 flex-col gap-1.5", className)}>
       <span className="text-xs font-medium text-muted uppercase tracking-wider">{label}</span>
       {children}
       {hint && <span className="text-xs text-subtle">{hint}</span>}

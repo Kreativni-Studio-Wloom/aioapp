@@ -278,6 +278,20 @@ input[type="number"]::-webkit-inner-spin-button,
 input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 input[type="number"] { -moz-appearance: textfield; }
 input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(var(--invert, 0)); }
+
+/* iOS Safari gives date/time inputs an intrinsic min-width and ignores width:100%,
+   so they overflow narrow containers. Drop native appearance so they size like text inputs. */
+input[type="date"], input[type="month"], input[type="time"], input[type="week"], input[type="datetime-local"] {
+  -webkit-appearance: none;
+  appearance: none;
+  min-width: 0;
+  max-width: 100%;
+  display: block;
+}
+input[type="date"]::-webkit-date-and-time-value,
+input[type="month"]::-webkit-date-and-time-value,
+input[type="time"]::-webkit-date-and-time-value,
+input[type="datetime-local"]::-webkit-date-and-time-value { text-align: left; margin: 0; }
 [data-theme="dark"] { --invert: 1; }
 
 ::selection { background: var(--fg); color: var(--inverse); }
